@@ -1684,9 +1684,10 @@ fn field_props(field: &str, ty: &str, doc: &[&str], default: &str) -> serde_json
         },
         "MergeBehaviorDef" => set! {
             "type": "string",
-            "enum": ["none", "crate", "module"],
+            "enum": ["none", "one", "crate", "module"],
             "enumDescriptions": [
                 "Do not merge imports at all.",
+                "Merge all imports into a single `use` statement.",
                 "Merge imports from the same crate into a single `use` statement.",
                 "Merge imports from the same module into a single `use` statement."
             ],
@@ -1701,9 +1702,10 @@ fn field_props(field: &str, ty: &str, doc: &[&str], default: &str) -> serde_json
         },
         "ImportGranularityDef" => set! {
             "type": "string",
-            "enum": ["preserve", "crate", "module", "item"],
+            "enum": ["preserve", "one", "crate", "module", "item"],
             "enumDescriptions": [
                 "Do not change the granularity of any imports and preserve the original structure written by the developer.",
+                "Merge all imports into a single use statement.",
                 "Merge imports from the same crate into a single use statement. Conversely, imports from different crates are split into separate statements.",
                 "Merge imports from the same module into a single use statement. Conversely, imports from different modules are split into separate statements.",
                 "Flatten imports so that each has its own use statement."
@@ -1714,12 +1716,14 @@ fn field_props(field: &str, ty: &str, doc: &[&str], default: &str) -> serde_json
             "enum": [
                 "plain",
                 "self",
-                "crate"
+                "crate",
+                "absolute"
             ],
             "enumDescriptions": [
                 "Insert import paths relative to the current module, using up to one `super` prefix if the parent module contains the requested item.",
                 "Insert import paths relative to the current module, using up to one `super` prefix if the parent module contains the requested item. Prefixes `self` in front of the path if it starts with a module.",
-                "Force import paths to be absolute by always starting them with `crate` or the extern crate name they come from."
+                "Force import paths to be absolute by always starting them with `crate` or the extern crate name they come from.",
+                "Force import paths to be absolute by always starting them with `crate` or the fully qualified crate name they come from."
             ],
         },
         "Vec<ManifestOrProjectJson>" => set! {
