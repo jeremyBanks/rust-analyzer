@@ -852,6 +852,8 @@ fn guess_empty() {
 #[test]
 fn guess_single() {
     check_guess(r"use foo::{baz::{qux, quux}, bar};", ImportGranularityGuess::Crate);
+    check_guess(r"use ::{baz::{qux, quux}, bar};", ImportGranularityGuess::One);
+    check_guess(r"use {baz::{qux, quux}, std};", ImportGranularityGuess::One);
     check_guess(r"use foo::bar;", ImportGranularityGuess::Unknown);
     check_guess(r"use foo::bar::{baz, qux};", ImportGranularityGuess::CrateOrModule);
 }

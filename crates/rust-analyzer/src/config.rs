@@ -1052,6 +1052,7 @@ impl Config {
         InsertUseConfig {
             granularity: match self.data.imports_granularity_group {
                 ImportGranularityDef::Preserve => ImportGranularity::Preserve,
+                ImportGranularityDef::One => ImportGranularity::One,
                 ImportGranularityDef::Item => ImportGranularity::Item,
                 ImportGranularityDef::Crate => ImportGranularity::Crate,
                 ImportGranularityDef::Module => ImportGranularity::Module,
@@ -1429,6 +1430,7 @@ pub enum ExprFillDefaultDef {
 #[serde(rename_all = "snake_case")]
 enum ImportGranularityDef {
     Preserve,
+    One,
     Item,
     Crate,
     Module,

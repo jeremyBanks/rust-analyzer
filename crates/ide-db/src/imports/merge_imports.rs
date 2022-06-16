@@ -12,6 +12,8 @@ use crate::syntax_helpers::node_ext::vis_eq;
 /// What type of merges are allowed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum MergeBehavior {
+    /// Merge all imports into a single use statement.
+    One,
     /// Merge imports from the same crate into a single use statement.
     Crate,
     /// Merge imports from the same module into a single use statement.
@@ -21,7 +23,7 @@ pub enum MergeBehavior {
 impl MergeBehavior {
     fn is_tree_allowed(&self, tree: &ast::UseTree) -> bool {
         match self {
-            MergeBehavior::Crate => true,
+            MergeBehavior::One | MergeBehavior::Crate => true,
             // only simple single segment paths are allowed
             MergeBehavior::Module => {
                 tree.use_tree_list().is_none() && tree.path().map(path_len) <= Some(1)
