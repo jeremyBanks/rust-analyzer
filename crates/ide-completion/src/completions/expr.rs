@@ -2,10 +2,9 @@
 
 use hir::ScopeDef;
 use ide_db::FxHashSet;
-use syntax::T;
 
 use crate::{
-    context::{NameRefContext, PathCompletionCtx, PathKind, PathQualifierCtx},
+    context::{NameRefContext, NameRefKind, PathCompletionCtx, PathKind, Qualified},
     CompletionContext, Completions,
 };
 
@@ -13,33 +12,38 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
     let _p = profile::span("complete_expr_path");
 
     let (
-        is_absolute_path,
-        qualifier,
+        qualified,
         in_block_expr,
         in_loop_body,
         is_func_update,
         after_if_expr,
         wants_mut_token,
+        in_condition,
     ) = match ctx.nameref_ctx() {
-        Some(NameRefContext {
-            path_ctx:
-                Some(PathCompletionCtx {
+        Some(&NameRefContext {
+            kind:
+                Some(NameRefKind::Path(PathCompletionCtx {
                     kind:
-                        PathKind::Expr { in_block_expr, in_loop_body, after_if_expr, ref_expr_parent },
-                    is_absolute_path,
-                    qualifier,
+                        PathKind::Expr {
+                            in_block_expr,
+                            in_loop_body,
+                            after_if_expr,
+                            in_condition,
+                            ref ref_expr_parent,
+                            ref is_func_update,
+                        },
+                    ref qualified,
                     ..
-                }),
-            record_expr,
+                })),
             ..
         }) if ctx.qualifier_ctx.none() => (
-            *is_absolute_path,
-            qualifier,
-            *in_block_expr,
-            *in_loop_body,
-            record_expr.as_ref().map_or(false, |&(_, it)| it),
-            *after_if_expr,
+            qualified,
+            in_block_expr,
+            in_loop_body,
+            is_func_update.is_some(),
+            after_if_expr,
             ref_expr_parent.as_ref().map(|it| it.mut_token().is_none()).unwrap_or(false),
+            in_condition,
         ),
         _ => return,
     };
@@ -54,16 +58,14 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
         }
     };
 
-    match qualifier {
-        Some(PathQualifierCtx { is_infer_qualifier, resolution, .. }) => {
-            if *is_infer_qualifier {
-                ctx.traits_in_scope()
-                    .0
-                    .into_iter()
-                    .flat_map(|it| hir::Trait::from(it).items(ctx.sema.db))
-                    .for_each(|item| add_assoc_item(acc, ctx, item));
-                return;
-            }
+    match qualified {
+        Qualified::Infer => ctx
+            .traits_in_scope()
+            .0
+            .into_iter()
+            .flat_map(|it| hir::Trait::from(it).items(ctx.sema.db))
+            .for_each(|item| add_assoc_item(acc, ctx, item)),
+        Qualified::With { resolution, .. } => {
             let resolution = match resolution {
                 Some(it) => it,
                 None => return,
@@ -167,8 +169,8 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
                 _ => (),
             }
         }
-        None if is_absolute_path => acc.add_crate_roots(ctx),
-        None => {
+        Qualified::Absolute => acc.add_crate_roots(ctx),
+        Qualified::No => {
             acc.add_nameref_keywords_with_colon(ctx);
             if let Some(adt) =
                 ctx.expected_type.as_ref().and_then(|ty| ty.strip_references().as_adt())
@@ -230,10 +232,7 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
                 add_keyword("true", "true");
                 add_keyword("false", "false");
 
-                if ctx.previous_token_is(T![if])
-                    || ctx.previous_token_is(T![while])
-                    || in_block_expr
-                {
+                if in_condition || in_block_expr {
                     add_keyword("let", "let");
                 }
 
