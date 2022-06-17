@@ -716,7 +716,16 @@ fn merge_groups_one_into_fully_qualified_group() {
     check_one(
         "hashbrown::potato",
         r"use ::{core::{apple, earth}, std::{async, sync::kitchen}};",
-        r"use ::{core::{apple, earth}, hashbrown::potato, std::{async, sync::kitchen};",
+        r"use {::{core::{apple, earth}, std::{async, sync::kitchen}}, hashbrown::potato};",
+    )
+}
+
+#[test]
+fn merge_groups_one_fully_qualified_into_fully_qualified_group() {
+    check_one(
+        "::hashbrown::potato",
+        r"use ::{core::{apple, earth}, std::{async, sync::kitchen}};",
+        r"use ::{core::{apple, earth}, std::{async, sync::kitchen}, hashbrown::potato};",
     )
 }
 

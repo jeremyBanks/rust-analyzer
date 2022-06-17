@@ -95,6 +95,7 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
         // same as a `filter` op).
         .map(|tree| merge.is_tree_allowed(&tree).then(|| tree))
         .collect::<Option<_>>()?;
+
     use_trees.sort_unstable_by(|a, b| path_cmp_for_sort(a.path(), b.path()));
     for rhs_t in rhs.use_tree_list().into_iter().flat_map(|list| list.use_trees()) {
         if !merge.is_tree_allowed(&rhs_t) {
@@ -102,15 +103,17 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
         }
         let rhs_path = rhs_t.path();
 
-        match use_trees
-            .binary_search_by(|lhs_t| path_cmp_bin_search(lhs_t.path(), rhs_path.as_ref()))
-        {
+        match if merge == MergeBehavior::One {
+            Ok(0)
+        } else {
+            use_trees.binary_search_by(|lhs_t| path_cmp_bin_search(lhs_t.path(), rhs_path.as_ref()))
+        } {
             Ok(idx) => {
                 let lhs_t = &mut use_trees[idx];
                 let lhs_path = lhs_t.path()?;
                 let rhs_path = rhs_path?;
                 let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
-                if merge == MergeBehavior::One || lhs_prefix == lhs_path && rhs_prefix == rhs_path {
+                if lhs_prefix == lhs_path && rhs_prefix == rhs_path {
                     let tree_is_self = |tree: &ast::UseTree| {
                         tree.path().as_ref().map(path_is_self).unwrap_or(false)
                     };
