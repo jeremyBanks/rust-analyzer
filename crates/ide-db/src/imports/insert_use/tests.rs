@@ -725,7 +725,7 @@ fn merge_groups_one_crate_into_fully_qualified_group() {
     check_one(
         "crate::wood",
         r"use ::{core::{apple, earth}, std::{async, sync::kitchen}};",
-        r"use {::{core::{apple, earth}, hashbrown::potato, std::{async, sync::kitchen}, crate::wood};",
+        r"use {::{core::{apple, earth}, std::{async, sync::kitchen}}, crate::wood};",
     )
 }
 
