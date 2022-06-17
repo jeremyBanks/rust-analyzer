@@ -696,45 +696,49 @@ use std::io;
 #[test]
 fn merge_groups_one_into_one() {
     check_one(
-        "hashbrown::potato",
-        r"use std::foo::bar::Qux;",
-        r"use {hashbrown::potato, std::foo::bar::Qux};",
+        "hashbrown::raw::Bucket",
+        "use alloc::rc::{Rc, Weak};",
+        "use {hashbrown::raw::Bucket, alloc::rc::{Rc, Weak}};",
     )
 }
 
 #[test]
+fn merge_groups_one_crate_into_one() {
+    check_one("hashbrown::raw::Bucket", "crate::main", "use {hashbrown::raw::Bucket, crate::main};")
+}
+#[test]
 fn merge_groups_one_into_group() {
     check_one(
-        "hashbrown::potato",
-        r"use {core::{apple, earth}, std::{async, sync::kitchen}};",
-        r"use {core::{apple, earth}, hashbrown::potato, std::{async, sync::kitchen};",
+        "hashbrown::raw::Bucket",
+        "use alloc::rc::{Rc, Weak};",
+        "use {alloc::rc::{Rc, Weak}, hashbrown::raw::Bucket};",
     )
 }
 
 #[test]
 fn merge_groups_one_into_fully_qualified_group() {
     check_one(
-        "hashbrown::potato",
-        r"use ::{core::{apple, earth}, std::{async, sync::kitchen}};",
-        r"use {::{core::{apple, earth}, std::{async, sync::kitchen}}, hashbrown::potato};",
+        "hashbrown::raw::Bucket",
+        "use ::alloc::rc::{Rc, Weak};",
+        "use {::alloc::rc::{Rc, Weak}, hashbrown::raw::Bucket};",
     )
 }
 
 #[test]
 fn merge_groups_one_fully_qualified_into_fully_qualified_group() {
     check_one(
-        "::hashbrown::potato",
-        r"use ::{core::{apple, earth}, std::{async, sync::kitchen}};",
-        r"use ::{core::{apple, earth}, std::{async, sync::kitchen}, hashbrown::potato};",
+        "::hashbrown::raw::Bucket",
+        "use ::alloc::rc::{Rc, Weak};",
+        "use ::{alloc::rc::{Rc, Weak}} hashbrown::raw::Bucket};",
     )
 }
 
 #[test]
 fn merge_groups_one_crate_into_fully_qualified_group() {
     check_one(
-        "crate::wood",
-        r"use ::{core::{apple, earth}, std::{async, sync::kitchen}};",
-        r"use {::{core::{apple, earth}, std::{async, sync::kitchen}}, crate::wood};",
+        "crate::main",
+        "use ::alloc::rc::{Rc, Weak};",
+        "use {::alloc::rc::{Rc, Weak}, crate::main};",
     )
 }
 

@@ -1716,12 +1716,12 @@ fn field_props(field: &str, ty: &str, doc: &[&str], default: &str) -> serde_json
             "enum": [
                 "plain",
                 "self",
-                "crate",
+                "crate"
             ],
             "enumDescriptions": [
                 "Insert import paths relative to the current module, using up to one `super` prefix if the parent module contains the requested item.",
                 "Insert import paths relative to the current module, using up to one `super` prefix if the parent module contains the requested item. Prefixes `self` in front of the path if it starts with a module.",
-                "Force import paths to be absolute by always starting them with `crate` or the extern crate name they come from.",
+                "Force import paths to be absolute by always starting them with `crate` or the extern crate name they come from."
             ],
         },
         "Vec<ManifestOrProjectJson>" => set! {
