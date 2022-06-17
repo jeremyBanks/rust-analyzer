@@ -110,7 +110,7 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
                 let lhs_path = lhs_t.path()?;
                 let rhs_path = rhs_path?;
                 let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
-                if lhs_prefix == lhs_path && rhs_prefix == rhs_path {
+                if merge == MergeBehavior::One || lhs_prefix == lhs_path && rhs_prefix == rhs_path {
                     let tree_is_self = |tree: &ast::UseTree| {
                         tree.path().as_ref().map(path_is_self).unwrap_or(false)
                     };

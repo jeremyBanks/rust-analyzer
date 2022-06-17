@@ -694,6 +694,42 @@ use std::io;
 }
 
 #[test]
+fn merge_groups_one_into_one() {
+    check_one(
+        "hashbrown::potato",
+        r"use std::foo::bar::Qux;",
+        r"use {hashbrown::potato, std::foo::bar::Qux};",
+    )
+}
+
+#[test]
+fn merge_groups_one_into_group() {
+    check_one(
+        "hashbrown::potato",
+        r"use {core::{apple, earth}, std::{async, sync::kitchen}};",
+        r"use {core::{apple, earth}, hashbrown::potato, std::{async, sync::kitchen};",
+    )
+}
+
+#[test]
+fn merge_groups_one_into_fully_qualified_group() {
+    check_one(
+        "hashbrown::potato",
+        r"use ::{core::{apple, earth}, std::{async, sync::kitchen}};",
+        r"use ::{core::{apple, earth}, hashbrown::potato, std::{async, sync::kitchen};",
+    )
+}
+
+#[test]
+fn merge_groups_one_crate_into_fully_qualified_group() {
+    check_one(
+        "crate::wood",
+        r"use ::{core::{apple, earth}, std::{async, sync::kitchen}};",
+        r"use {::{core::{apple, earth}, hashbrown::potato, std::{async, sync::kitchen}, crate::wood};",
+    )
+}
+
+#[test]
 fn split_out_merge() {
     // FIXME: This is suboptimal, we want to get `use std::fmt::{self, Result}`
     // instead.
@@ -1033,6 +1069,10 @@ fn check(
             skip_glob_imports: true,
         },
     )
+}
+
+fn check_one(path: &str, ra_fixture_before: &str, ra_fixture_after: &str) {
+    check(path, ra_fixture_before, ra_fixture_after, ImportGranularity::One)
 }
 
 fn check_crate(path: &str, ra_fixture_before: &str, ra_fixture_after: &str) {
