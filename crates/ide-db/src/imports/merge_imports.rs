@@ -102,10 +102,13 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
         }
         let rhs_path = rhs_t.path();
 
-        match use_trees
-            .binary_search_by(|lhs_t| path_cmp_bin_search(lhs_t.path(), rhs_path.as_ref()))
-        {
-            Ok(idx) => {
+        match (
+            use_trees
+                .binary_search_by(|lhs_t| path_cmp_bin_search(lhs_t.path(), rhs_path.as_ref())),
+            merge,
+            use_trees.is_empty(),
+        ) {
+            (Err(idx), MergeBehavior::One, false) | (Ok(idx), _, _) => {
                 let lhs_t = &mut use_trees[idx];
                 let lhs_path = lhs_t.path()?;
                 let rhs_path = rhs_path?;
@@ -145,14 +148,12 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
                 }
                 recursive_merge(lhs_t, &rhs_t, merge)?;
             }
-            Err(_)
-                if merge == MergeBehavior::Module
-                    && !use_trees.is_empty()
-                    && rhs_t.use_tree_list().is_some() =>
+            (Err(_), MergeBehavior::Module, _)
+                if !use_trees.is_empty() && rhs_t.use_tree_list().is_some() =>
             {
                 return None
             }
-            Err(idx) => {
+            (Err(idx), _, _) => {
                 use_trees.insert(idx, rhs_t.clone());
                 lhs.get_or_create_use_tree_list().add_use_tree(rhs_t);
             }

@@ -706,6 +706,7 @@ fn merge_groups_one_into_one() {
 fn merge_groups_one_crate_into_one() {
     check_one("hashbrown::raw::Bucket", "crate::main", "use {hashbrown::raw::Bucket, crate::main};")
 }
+
 #[test]
 fn merge_groups_one_into_group() {
     check_one(
