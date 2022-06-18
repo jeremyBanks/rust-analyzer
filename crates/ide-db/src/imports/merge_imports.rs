@@ -48,50 +48,12 @@ pub fn try_merge_imports(
         return None;
     }
 
-    dbg!(empty);
-
     let lhs = lhs.clone_subtree().clone_for_update();
     let rhs = rhs.clone_subtree().clone_for_update();
-    if let (Some(lhs_tree), Some(rhs_tree)) = (lhs.use_tree(), rhs.use_tree()) {
-        if try_merge_trees_mut(&lhs_tree, &rhs_tree, merge_behavior).is_some() {
-            Some(lhs)
-        } else if merge_behavior == MergeBehavior::One {
-            match (lhs_tree.coloncolon_token().is_some(), rhs_tree.coloncolon_token().is_some()) {
-                (true, true) => {
-                    let use_tree = ast::make::use_coloncolon_tree();
-                    let use_ = ast::make::use_(lhs.visibility(), use_tree);
-
-                    if let Some(path) = lhs_tree.path() {
-                        lhs_tree.split_prefix(&path);
-                    }
-                    if let Some(path) = rhs_tree.path() {
-                        rhs_tree.split_prefix(&path);
-                    }
-
-                    let lhs_list = lhs_tree.get_or_create_use_tree_list();
-                    let rhs_list = rhs_tree.get_or_create_use_tree_list();
-                    for item in rhs_list.use_trees() {
-                        if let Some(path) = item.path() {
-                            item.split_prefix(&path);
-                        }
-                        lhs_list.add_use_tree(item);
-                    }
-                    Some(lhs)
-                }
-                _ => {
-                    None
-                    // let merged =
-                    //     ast::make::use_tree_list([lhs_tree.clone_subtree(), rhs_tree.clone_subtree()]);
-                    // ted::replace(lhs_tree.syntax(), merged.syntax());
-                    // Some(lhs)
-                }
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    }
+    let lhs_tree = lhs.use_tree()?;
+    let rhs_tree = rhs.use_tree()?;
+    try_merge_trees_mut(&lhs_tree, &rhs_tree, merge_behavior)?;
+    Some(lhs)
 }
 
 /// Merge `rhs` into `lhs` keeping both intact.
@@ -111,7 +73,7 @@ fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehav
     let lhs_path = lhs.path()?;
     let rhs_path = rhs.path()?;
 
-    let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
+    let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path, merge)?;
     if !(lhs.is_simple_path()
         && rhs.is_simple_path()
         && lhs_path == lhs_prefix
@@ -148,7 +110,7 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
                 let lhs_t = &mut use_trees[idx];
                 let lhs_path = lhs_t.path()?;
                 let rhs_path = rhs_path?;
-                let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
+                let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path, merge)?;
                 if lhs_prefix == lhs_path && rhs_prefix == rhs_path {
                     let tree_is_self = |tree: &ast::UseTree| {
                         tree.path().as_ref().map(path_is_self).unwrap_or(false)
