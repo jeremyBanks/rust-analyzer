@@ -274,6 +274,13 @@ pub fn use_tree_list(use_trees: impl IntoIterator<Item = ast::UseTree>) -> ast::
     ast_from_text(&format!("use {{{}}};", use_trees))
 }
 
+pub fn use_coloncolon_tree_list(
+    use_trees: impl IntoIterator<Item = ast::UseTree>,
+) -> ast::UseTreeList {
+    let use_trees = use_trees.into_iter().map(|it| it.syntax().clone()).join(", ");
+    ast_from_text(&format!("use ::{{{}}};", use_trees))
+}
+
 pub fn use_(visibility: Option<ast::Visibility>, use_tree: ast::UseTree) -> ast::Use {
     let visibility = match visibility {
         None => String::new(),

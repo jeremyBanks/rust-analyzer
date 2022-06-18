@@ -85,10 +85,18 @@ fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehav
                 rhs.split_prefix(&rhs_prefix);
             }
         }
-        // CommonPrefix::ColonColonToken { lhs_prefix: lhs, rhs_prefix: rhs }
-        //     if merge == MergeBehavior::One {},
-        // CommonPrefix::None { lhs, rhs }
-        // if merge == MergeBehavior::One {},
+        CommonPrefix::ColonColonToken { lhs_prefix, rhs_prefix } if merge == MergeBehavior::One => {
+            ted::replace(
+                lhs.syntax(),
+                ast::make::use_coloncolon_tree_list([lhs.clone(), rhs.clone()]).syntax(),
+            );
+        }
+        CommonPrefix::Empty if merge == MergeBehavior::One => {
+            ted::replace(
+                lhs.syntax(),
+                ast::make::use_tree_list([lhs.clone(), rhs.clone()]).syntax(),
+            );
+        }
         _ => return None,
     }
     recursive_merge(lhs, rhs, merge)
