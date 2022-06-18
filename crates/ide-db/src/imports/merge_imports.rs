@@ -23,12 +23,12 @@ pub enum MergeBehavior {
 impl MergeBehavior {
     fn is_tree_allowed(&self, tree: &ast::UseTree) -> bool {
         match self {
+            MergeBehavior::One => true,
             MergeBehavior::Crate => true,
             // only simple single segment paths are allowed
             MergeBehavior::Module => {
                 tree.use_tree_list().is_none() && tree.path().map(path_len) <= Some(1)
             }
-            MergeBehavior::One => todo!(),
         }
     }
 }
@@ -73,14 +73,23 @@ fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehav
     let lhs_path = lhs.path()?;
     let rhs_path = rhs.path()?;
 
-    let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
-    if !(lhs.is_simple_path()
-        && rhs.is_simple_path()
-        && lhs_path == lhs_prefix
-        && rhs_path == rhs_prefix)
-    {
-        lhs.split_prefix(&lhs_prefix);
-        rhs.split_prefix(&rhs_prefix);
+    let prefix = common_prefix(&lhs_path, &rhs_path);
+    match prefix {
+        CommonPrefix::Path { lhs_prefix, rhs_prefix } => {
+            if !(lhs.is_simple_path()
+                && rhs.is_simple_path()
+                && lhs_path == lhs_prefix
+                && rhs_path == rhs_prefix)
+            {
+                lhs.split_prefix(&lhs_prefix);
+                rhs.split_prefix(&rhs_prefix);
+            }
+        }
+        // CommonPrefix::ColonColonToken { lhs_prefix: lhs, rhs_prefix: rhs }
+        //     if merge == MergeBehavior::One {},
+        // CommonPrefix::None { lhs, rhs }
+        // if merge == MergeBehavior::One {},
+        _ => return None,
     }
     recursive_merge(lhs, rhs, merge)
 }
@@ -110,7 +119,7 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
                 let lhs_t = &mut use_trees[idx];
                 let lhs_path = lhs_t.path()?;
                 let rhs_path = rhs_path?;
-                let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
+                let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path).path()?;
                 if lhs_prefix == lhs_path && rhs_prefix == rhs_path {
                     let tree_is_self = |tree: &ast::UseTree| {
                         tree.path().as_ref().map(path_is_self).unwrap_or(false)
@@ -160,9 +169,42 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
     Some(())
 }
 
+pub enum CommonPrefix {
+    Path { lhs_prefix: ast::Path, rhs_prefix: ast::Path },
+    ColonColonToken { lhs_prefix: syntax::SyntaxToken, rhs_prefix: syntax::SyntaxToken },
+    Empty,
+}
+
+impl CommonPrefix {
+    pub fn path(&self) -> Option<(ast::Path, ast::Path)> {
+        match self {
+            CommonPrefix::Path { lhs_prefix, rhs_prefix } => {
+                Some((lhs_prefix.clone(), rhs_prefix.clone()))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn syntax(&self) -> Option<(syntax::SyntaxElement, syntax::SyntaxElement)> {
+        match self {
+            CommonPrefix::Path { lhs_prefix, rhs_prefix } => {
+                Some((lhs_prefix.syntax().clone().into(), rhs_prefix.syntax().clone().into()))
+            }
+            CommonPrefix::ColonColonToken { lhs_prefix, rhs_prefix } => {
+                Some((lhs_prefix.clone().into(), rhs_prefix.clone().into()))
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Traverses both paths until they differ, returning the common prefix of both.
-pub fn common_prefix(lhs: &ast::Path, rhs: &ast::Path) -> Option<(ast::Path, ast::Path)> {
-    let mut res = None;
+pub fn common_prefix(lhs: &ast::Path, rhs: &ast::Path) -> CommonPrefix {
+    let mut res = if let (Some(lhs), Some(rhs)) = (lhs.coloncolon_token(), rhs.coloncolon_token()) {
+        CommonPrefix::ColonColonToken { lhs_prefix: lhs, rhs_prefix: rhs }
+    } else {
+        CommonPrefix::Empty
+    };
     let mut lhs_curr = lhs.first_qualifier_or_self();
     let mut rhs_curr = rhs.first_qualifier_or_self();
     loop {
@@ -170,7 +212,7 @@ pub fn common_prefix(lhs: &ast::Path, rhs: &ast::Path) -> Option<(ast::Path, ast
             (Some(lhs), Some(rhs)) if lhs.syntax().text() == rhs.syntax().text() => (),
             _ => break res,
         }
-        res = Some((lhs_curr.clone(), rhs_curr.clone()));
+        res = CommonPrefix::Path { lhs_prefix: lhs_curr.clone(), rhs_prefix: rhs_curr.clone() };
 
         match lhs_curr.parent_path().zip(rhs_curr.parent_path()) {
             Some((lhs, rhs)) => {

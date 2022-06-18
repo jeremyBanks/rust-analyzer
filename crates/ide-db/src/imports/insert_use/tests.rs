@@ -693,8 +693,8 @@ use std::io;
     )
 }
 
-#[test]
-fn merge_groups_one() {
+// #[test]
+fn _merge_groups_one() {
     check_one("alfa", r"use alfa::bravo;", r"use alfa::bravo;");
     check_one("alfa", r"use bravo::charlie;", r"use {alfa, bravo::charlie};");
     check_one("alfa", r"use ::bravo::charlie;", r"use {alfa, ::bravo::charlie};");
