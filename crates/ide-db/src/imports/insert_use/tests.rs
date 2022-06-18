@@ -693,56 +693,6 @@ use std::io;
     )
 }
 
-// #[test]
-fn merge_groups_one_into_one() {
-    check_one(
-        "hashbrown::raw::Bucket",
-        "use alloc::rc::{Rc, Weak};",
-        "use {hashbrown::raw::Bucket, alloc::rc::{Rc, Weak}};",
-    )
-}
-
-// #[test]
-fn merge_groups_one_crate_into_one() {
-    check_one("hashbrown::raw::Bucket", "crate::main", "use {hashbrown::raw::Bucket, crate::main};")
-}
-
-// #[test]
-fn merge_groups_one_into_group() {
-    check_one(
-        "hashbrown::raw::Bucket",
-        "use alloc::rc::{Rc, Weak};",
-        "use {alloc::rc::{Rc, Weak}, hashbrown::raw::Bucket};",
-    )
-}
-
-// #[test]
-fn merge_groups_one_into_fully_qualified_group() {
-    check_one(
-        "hashbrown::raw::Bucket",
-        "use ::alloc::rc::{Rc, Weak};",
-        "use {::alloc::rc::{Rc, Weak}, hashbrown::raw::Bucket};",
-    )
-}
-
-// #[test]
-fn merge_groups_one_fully_qualified_into_fully_qualified_group() {
-    check_one(
-        "::hashbrown::raw::Bucket",
-        "use ::alloc::rc::{Rc, Weak};",
-        "use ::{alloc::rc::{Rc, Weak}} hashbrown::raw::Bucket};",
-    )
-}
-
-// #[test]
-fn merge_groups_one_crate_into_fully_qualified_group() {
-    check_one(
-        "crate::main",
-        "use ::alloc::rc::{Rc, Weak};",
-        "use {::alloc::rc::{Rc, Weak}, crate::main};",
-    )
-}
-
 #[test]
 fn split_out_merge() {
     // FIXME: This is suboptimal, we want to get `use std::fmt::{self, Result}`
@@ -901,6 +851,8 @@ fn guess_empty() {
 
 #[test]
 fn guess_single() {
+    check_guess(r"use {baz, bar};", ImportGranularityGuess::One);
+    check_guess(r"use ::{baz, bar};", ImportGranularityGuess::One);
     check_guess(r"use {baz::{qux, quux}, bar};", ImportGranularityGuess::One);
     check_guess(r"use ::{baz::{qux, quux}, bar};", ImportGranularityGuess::One);
     check_guess(r"use foo::{baz::{qux, quux}, bar};", ImportGranularityGuess::Crate);
@@ -992,6 +944,46 @@ fn guess_crate() {
         r"
 use frob::bar::baz;
 use foo::{baz::{qux, quux}, bar};
+",
+        ImportGranularityGuess::Crate,
+    );
+}
+
+#[test]
+fn guess_one() {
+    check_guess("use {alfa, bravo};", ImportGranularityGuess::One);
+    check_guess("use {alfa, bravo, crate::charlie};", ImportGranularityGuess::One);
+    check_guess("use {::alfa::bravo::charlie, self::delta};", ImportGranularityGuess::One);
+
+    // This case doesn't conform to any style, but includes multiple crates in a single use statement,
+    // which can only occur under the `One` style.
+    check_guess(
+        r"
+use alfa;
+use {bravo, charlie};
+use delta;
+use echo::foxtrot;
+",
+        ImportGranularityGuess::One,
+    );
+
+    // This case doesn't conform to any style.
+    // It is decided by whether a use statement that's characteristic of `One` or `Crate` style occurs first.
+    check_guess(
+        r"
+use alfa;
+use {bravo, charlie};
+use delta;
+use echo::{foxtrot::{golf, hotel}, india};
+",
+        ImportGranularityGuess::One,
+    );
+    check_guess(
+        r"
+use alfa;
+use bravo::{charlie::{delta, echo}, foxtrot};
+use golf;
+use {hotel, india};
 ",
         ImportGranularityGuess::Crate,
     );
@@ -1117,6 +1109,7 @@ fn check_merge_only_fail(ra_fixture0: &str, ra_fixture1: &str, mb: MergeBehavior
 }
 
 fn check_guess(ra_fixture: &str, expected: ImportGranularityGuess) {
+    eprintln!("😕 expecting {expected:?} from {ra_fixture:?}");
     let syntax = ast::SourceFile::parse(ra_fixture).tree().syntax().clone();
     let file = ImportScope::from(syntax).unwrap();
     assert_eq!(super::guess_granularity_from_scope(&file), expected);

@@ -283,14 +283,12 @@ fn guess_granularity_from_scope(scope: &ImportScope) -> ImportGranularityGuess {
     };
     loop {
         if let Some(use_tree_list) = prev.use_tree_list() {
-            if use_tree_list.use_trees().any(|tree| tree.use_tree_list().is_some()) {
-                if prev.path().is_none() {
-                    // Path-free tree lists can only occur in `one` style.
-                    break ImportGranularityGuess::One;
-                } else {
-                    // Other nested tree lists can only occur in crate style, or with no proper style being enforced in the file.
-                    break ImportGranularityGuess::Crate;
-                }
+            if prev.path().is_none() {
+                // Path-free tree lists can only occur in `one` style.
+                break ImportGranularityGuess::One;
+            } else if use_tree_list.use_trees().any(|tree| tree.use_tree_list().is_some()) {
+                // Nested tree lists can only occur in crate style, or with no proper style being enforced in the file.
+                break ImportGranularityGuess::Crate;
             } else {
                 // Could still be crate-style so continue looking.
                 res = ImportGranularityGuess::CrateOrModule;
