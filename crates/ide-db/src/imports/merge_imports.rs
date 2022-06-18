@@ -48,24 +48,47 @@ pub fn try_merge_imports(
         return None;
     }
 
+    dbg!(empty);
+
     let lhs = lhs.clone_subtree().clone_for_update();
     let rhs = rhs.clone_subtree().clone_for_update();
-    let merged_trees = if let (Some(lhs_tree), Some(rhs_tree)) = (lhs.use_tree(), rhs.use_tree()) {
-        try_merge_trees_mut(&lhs_tree, &rhs_tree, merge_behavior)
-    } else {
-        None
-    }
-    .is_some();
+    if let (Some(lhs_tree), Some(rhs_tree)) = (lhs.use_tree(), rhs.use_tree()) {
+        if try_merge_trees_mut(&lhs_tree, &rhs_tree, merge_behavior).is_some() {
+            Some(lhs)
+        } else if merge_behavior == MergeBehavior::One {
+            match (lhs_tree.coloncolon_token().is_some(), rhs_tree.coloncolon_token().is_some()) {
+                (true, true) => {
+                    let use_tree = ast::make::use_coloncolon_tree();
+                    let use_ = ast::make::use_(lhs.visibility(), use_tree);
 
-    if merged_trees {
-        Some(lhs)
-    } else if merge_behavior == MergeBehavior::One {
-        dbg!("uh oh this is going to be wrong");
-        dbg!(&lhs);
-        // let mut trees = lhs.use_tree_list().unwrap_or_default();
-        // trees.extend(rhs.use_tree_list().unwrap_or_default());
-        // Some(lhs)
-        None
+                    if let Some(path) = lhs_tree.path() {
+                        lhs_tree.split_prefix(&path);
+                    }
+                    if let Some(path) = rhs_tree.path() {
+                        rhs_tree.split_prefix(&path);
+                    }
+
+                    let lhs_list = lhs_tree.get_or_create_use_tree_list();
+                    let rhs_list = rhs_tree.get_or_create_use_tree_list();
+                    for item in rhs_list.use_trees() {
+                        if let Some(path) = item.path() {
+                            item.split_prefix(&path);
+                        }
+                        lhs_list.add_use_tree(item);
+                    }
+                    Some(lhs)
+                }
+                _ => {
+                    None
+                    // let merged =
+                    //     ast::make::use_tree_list([lhs_tree.clone_subtree(), rhs_tree.clone_subtree()]);
+                    // ted::replace(lhs_tree.syntax(), merged.syntax());
+                    // Some(lhs)
+                }
+            }
+        } else {
+            None
+        }
     } else {
         None
     }
@@ -97,7 +120,6 @@ fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehav
         lhs.split_prefix(&lhs_prefix);
         rhs.split_prefix(&rhs_prefix);
     }
-
     recursive_merge(lhs, rhs, merge)
 }
 
@@ -176,26 +198,27 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
     Some(())
 }
 
-pub enum CommonPrefix {
-    Path { lhs_prefix: ast::Path, rhs_prefix: ast::Path },
-    ColonColonToken,
-    Empty,
-}
-
-impl CommonPrefix {
-    pub fn path(&self) -> Option<(ast::Path, ast::Path)> {
-        match self {
-            CommonPrefix::Path { lhs_prefix, rhs_prefix } => {
-                Some((lhs_prefix.clone(), rhs_prefix.clone()))
-            }
-            _ => None,
-        }
-    }
-}
-
 /// Traverses both paths until they differ, returning the common prefix of both.
-pub fn common_prefix(lhs: &ast::Path, rhs: &ast::Path) -> Option<(ast::Path, ast::Path)> {
-    let mut res = None;
+pub fn common_prefix(
+    lhs: &ast::Path,
+    rhs: &ast::Path,
+    merge: MergeBehavior,
+) -> Option<(ast::Path, ast::Path)> {
+    let mut res = if merge == MergeBehavior::One {
+        if lhs.qualifier().is_none()
+            && rhs.qualifier().is_none()
+            && lhs.coloncolon_token().is_some()
+            && rhs.coloncolon_token().is_none()
+        {
+            let abs = ast::make::path_from_segments([], true);
+            Some((abs.clone(), abs))
+        } else {
+            let empty = ast::make::path_from_segments([], false);
+            Some((empty.clone(), empty))
+        }
+    } else {
+        None
+    };
     let mut lhs_curr = lhs.first_qualifier_or_self();
     let mut rhs_curr = rhs.first_qualifier_or_self();
     loop {
