@@ -50,11 +50,25 @@ pub fn try_merge_imports(
 
     let lhs = lhs.clone_subtree().clone_for_update();
     let rhs = rhs.clone_subtree().clone_for_update();
-    // TODO: we need to move the logic up here, since what we're merging may not even be trees!
-    let lhs_tree = lhs.use_tree()?;
-    let rhs_tree = rhs.use_tree()?;
-    try_merge_trees_mut(&lhs_tree, &rhs_tree, merge_behavior)?;
-    Some(lhs)
+    let merged_trees = if let (Some(lhs_tree), Some(rhs_tree)) = (lhs.use_tree(), rhs.use_tree()) {
+        try_merge_trees_mut(&lhs_tree, &rhs_tree, merge_behavior)
+    } else {
+        None
+    }
+    .is_some();
+
+    if merged_trees {
+        Some(lhs)
+    } else if merge_behavior == MergeBehavior::One {
+        dbg!("uh oh this is going to be wrong");
+        dbg!(&lhs);
+        // let mut trees = lhs.use_tree_list().unwrap_or_default();
+        // trees.extend(rhs.use_tree_list().unwrap_or_default());
+        // Some(lhs)
+        None
+    } else {
+        None
+    }
 }
 
 /// Merge `rhs` into `lhs` keeping both intact.
@@ -66,34 +80,24 @@ pub fn try_merge_trees(
 ) -> Option<ast::UseTree> {
     let lhs = lhs.clone_subtree().clone_for_update();
     let rhs = rhs.clone_subtree().clone_for_update();
-    try_merge_trees_mut(&mut lhs, &mut rhs, merge)?;
+    try_merge_trees_mut(&lhs, &rhs, merge)?;
     Some(lhs)
 }
 
-fn try_merge_trees_mut(lhs: &mut ast::UseTree, rhs: &mut ast::UseTree, merge: MergeBehavior) -> Option<()> {
+fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior) -> Option<()> {
     let lhs_path = lhs.path()?;
     let rhs_path = rhs.path()?;
 
-    let prefix = common_prefix(&lhs_path, &rhs_path);
-    match prefix {
-        CommonPrefix::Path { lhs_prefix, rhs_prefix } => {
-            if !(lhs.is_simple_path()
-                && rhs.is_simple_path()
-                && lhs_path == lhs_prefix
-                && rhs_path == rhs_prefix)
-            {
-                lhs.split_prefix(&lhs_prefix);
-                rhs.split_prefix(&rhs_prefix);
-            }
-        }
-        CommonPrefix::ColonColonToken if merge == MergeBehavior::One => {
-            *lhs = ast::make::use_coloncolon_tree_list([lhs.clone_for_update(), rhs.clone()]);
-        }
-        CommonPrefix::Empty if merge == MergeBehavior::One => {
-            *lhs = ast::make::use_tree_list([lhs.clone_for_update(), rhs.clone()]);
-        }
-        _ => return None,
+    let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
+    if !(lhs.is_simple_path()
+        && rhs.is_simple_path()
+        && lhs_path == lhs_prefix
+        && rhs_path == rhs_prefix)
+    {
+        lhs.split_prefix(&lhs_prefix);
+        rhs.split_prefix(&rhs_prefix);
     }
+
     recursive_merge(lhs, rhs, merge)
 }
 
@@ -122,7 +126,7 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
                 let lhs_t = &mut use_trees[idx];
                 let lhs_path = lhs_t.path()?;
                 let rhs_path = rhs_path?;
-                let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path).path()?;
+                let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
                 if lhs_prefix == lhs_path && rhs_prefix == rhs_path {
                     let tree_is_self = |tree: &ast::UseTree| {
                         tree.path().as_ref().map(path_is_self).unwrap_or(false)
@@ -190,12 +194,8 @@ impl CommonPrefix {
 }
 
 /// Traverses both paths until they differ, returning the common prefix of both.
-pub fn common_prefix(lhs: &ast::Path, rhs: &ast::Path) -> CommonPrefix {
-    let mut res = if lhs.coloncolon_token().is_some() && rhs.coloncolon_token().is_some() {
-        CommonPrefix::ColonColonToken
-    } else {
-        CommonPrefix::Empty
-    };
+pub fn common_prefix(lhs: &ast::Path, rhs: &ast::Path) -> Option<(ast::Path, ast::Path)> {
+    let mut res = None;
     let mut lhs_curr = lhs.first_qualifier_or_self();
     let mut rhs_curr = rhs.first_qualifier_or_self();
     loop {
@@ -203,7 +203,7 @@ pub fn common_prefix(lhs: &ast::Path, rhs: &ast::Path) -> CommonPrefix {
             (Some(lhs), Some(rhs)) if lhs.syntax().text() == rhs.syntax().text() => (),
             _ => break res,
         }
-        res = CommonPrefix::Path { lhs_prefix: lhs_curr.clone(), rhs_prefix: rhs_curr.clone() };
+        res = Some((lhs_curr.clone(), rhs_curr.clone()));
 
         match lhs_curr.parent_path().zip(rhs_curr.parent_path()) {
             Some((lhs, rhs)) => {

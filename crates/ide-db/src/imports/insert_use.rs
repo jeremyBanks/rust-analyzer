@@ -301,7 +301,7 @@ fn guess_granularity_from_scope(scope: &ImportScope) -> ImportGranularityGuess {
         };
         if eq_visibility(prev_vis, curr_vis.clone()) && eq_attrs(prev_attrs, curr_attrs.clone()) {
             if let Some((prev_path, curr_path)) = prev.path().zip(curr.path()) {
-                if let Some((prev_prefix, _)) = common_prefix(&prev_path, &curr_path).path() {
+                if let Some((prev_prefix, _)) = common_prefix(&prev_path, &curr_path) {
                     if prev.use_tree_list().is_none() && curr.use_tree_list().is_none() {
                         let prefix_c = prev_prefix.qualifiers().count();
                         let curr_c = curr_path.qualifiers().count() - prefix_c;
