@@ -50,6 +50,7 @@ pub fn try_merge_imports(
 
     let lhs = lhs.clone_subtree().clone_for_update();
     let rhs = rhs.clone_subtree().clone_for_update();
+    // TODO: we need to move the logic up here, since what we're merging may not even be trees!
     let lhs_tree = lhs.use_tree()?;
     let rhs_tree = rhs.use_tree()?;
     try_merge_trees_mut(&lhs_tree, &rhs_tree, merge_behavior)?;
@@ -65,11 +66,11 @@ pub fn try_merge_trees(
 ) -> Option<ast::UseTree> {
     let lhs = lhs.clone_subtree().clone_for_update();
     let rhs = rhs.clone_subtree().clone_for_update();
-    try_merge_trees_mut(&lhs, &rhs, merge)?;
+    try_merge_trees_mut(&mut lhs, &mut rhs, merge)?;
     Some(lhs)
 }
 
-fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior) -> Option<()> {
+fn try_merge_trees_mut(lhs: &mut ast::UseTree, rhs: &mut ast::UseTree, merge: MergeBehavior) -> Option<()> {
     let lhs_path = lhs.path()?;
     let rhs_path = rhs.path()?;
 
@@ -85,17 +86,11 @@ fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehav
                 rhs.split_prefix(&rhs_prefix);
             }
         }
-        CommonPrefix::ColonColonToken { lhs_prefix, rhs_prefix } if merge == MergeBehavior::One => {
-            ted::replace(
-                lhs.syntax(),
-                ast::make::use_coloncolon_tree_list([lhs.clone(), rhs.clone()]).syntax(),
-            );
+        CommonPrefix::ColonColonToken if merge == MergeBehavior::One => {
+            *lhs = ast::make::use_coloncolon_tree_list([lhs.clone_for_update(), rhs.clone()]);
         }
         CommonPrefix::Empty if merge == MergeBehavior::One => {
-            ted::replace(
-                lhs.syntax(),
-                ast::make::use_tree_list([lhs.clone(), rhs.clone()]).syntax(),
-            );
+            *lhs = ast::make::use_tree_list([lhs.clone_for_update(), rhs.clone()]);
         }
         _ => return None,
     }
@@ -179,7 +174,7 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
 
 pub enum CommonPrefix {
     Path { lhs_prefix: ast::Path, rhs_prefix: ast::Path },
-    ColonColonToken { lhs_prefix: syntax::SyntaxToken, rhs_prefix: syntax::SyntaxToken },
+    ColonColonToken,
     Empty,
 }
 
@@ -192,24 +187,12 @@ impl CommonPrefix {
             _ => None,
         }
     }
-
-    pub fn syntax(&self) -> Option<(syntax::SyntaxElement, syntax::SyntaxElement)> {
-        match self {
-            CommonPrefix::Path { lhs_prefix, rhs_prefix } => {
-                Some((lhs_prefix.syntax().clone().into(), rhs_prefix.syntax().clone().into()))
-            }
-            CommonPrefix::ColonColonToken { lhs_prefix, rhs_prefix } => {
-                Some((lhs_prefix.clone().into(), rhs_prefix.clone().into()))
-            }
-            _ => None,
-        }
-    }
 }
 
 /// Traverses both paths until they differ, returning the common prefix of both.
 pub fn common_prefix(lhs: &ast::Path, rhs: &ast::Path) -> CommonPrefix {
-    let mut res = if let (Some(lhs), Some(rhs)) = (lhs.coloncolon_token(), rhs.coloncolon_token()) {
-        CommonPrefix::ColonColonToken { lhs_prefix: lhs, rhs_prefix: rhs }
+    let mut res = if lhs.coloncolon_token().is_some() && rhs.coloncolon_token().is_some() {
+        CommonPrefix::ColonColonToken
     } else {
         CommonPrefix::Empty
     };
