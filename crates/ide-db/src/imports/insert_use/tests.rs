@@ -694,6 +694,18 @@ use std::io;
 }
 
 #[test]
+fn merge_groups_one() {
+    check_one("alfa", r"use alfa::bravo;", r"use alfa::bravo;");
+    check_one("alfa", r"use bravo::charlie;", r"use {alfa, bravo::charlie};");
+    check_one("alfa", r"use ::bravo::charlie;", r"use {alfa, ::bravo::charlie};");
+    check_one("::alfa", r"use bravo::charlie;", r"use {::alfa, bravo::charlie};");
+    check_one("::alfa", r"use ::bravo::charlie;", r"use ::{alfa, bravo::charlie};");
+    check_one("alfa", r"use {bravo, charlie};", r"use {alfa, bravo, charlie};");
+    check_one("alfa", r"use ::{bravo, charlie};", r"use {alfa, ::{bravo, charlie}};");
+    check_one("::alfa", r"use {bravo, charlie};", r"use {::alfa, {bravo, charlie}};");
+}
+
+#[test]
 fn split_out_merge() {
     // FIXME: This is suboptimal, we want to get `use std::fmt::{self, Result}`
     // instead.
@@ -951,9 +963,9 @@ use foo::{baz::{qux, quux}, bar};
 
 #[test]
 fn guess_one() {
-    check_guess("use {alfa, bravo};", ImportGranularityGuess::One);
-    check_guess("use {alfa, bravo, crate::charlie};", ImportGranularityGuess::One);
-    check_guess("use {::alfa::bravo::charlie, self::delta};", ImportGranularityGuess::One);
+    check_guess(r"use {alfa, bravo};", ImportGranularityGuess::One);
+    check_guess(r"use {alfa, bravo, crate::charlie};", ImportGranularityGuess::One);
+    check_guess(r"use {::alfa::bravo::charlie, self::delta};", ImportGranularityGuess::One);
 
     // This case doesn't conform to any style, but includes multiple crates in a single use statement,
     // which can only occur under the `One` style.
@@ -1077,6 +1089,10 @@ fn check(
     )
 }
 
+fn check_one(path: &str, ra_fixture_before: &str, ra_fixture_after: &str) {
+    check(path, ra_fixture_before, ra_fixture_after, ImportGranularity::One)
+}
+
 fn check_crate(path: &str, ra_fixture_before: &str, ra_fixture_after: &str) {
     check(path, ra_fixture_before, ra_fixture_after, ImportGranularity::Crate)
 }
@@ -1109,7 +1125,6 @@ fn check_merge_only_fail(ra_fixture0: &str, ra_fixture1: &str, mb: MergeBehavior
 }
 
 fn check_guess(ra_fixture: &str, expected: ImportGranularityGuess) {
-    eprintln!("😕 expecting {expected:?} from {ra_fixture:?}");
     let syntax = ast::SourceFile::parse(ra_fixture).tree().syntax().clone();
     let file = ImportScope::from(syntax).unwrap();
     assert_eq!(super::guess_granularity_from_scope(&file), expected);

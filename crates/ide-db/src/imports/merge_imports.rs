@@ -12,7 +12,7 @@ use crate::syntax_helpers::node_ext::vis_eq;
 /// What type of merges are allowed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum MergeBehavior {
-    /// Merge imports from the same crate into a single use statement.
+    /// Merge all imports into a single use statement.
     One,
     /// Merge imports from the same crate into a single use statement.
     Crate,
