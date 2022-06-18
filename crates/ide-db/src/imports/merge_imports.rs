@@ -12,7 +12,7 @@ use crate::syntax_helpers::node_ext::vis_eq;
 /// What type of merges are allowed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum MergeBehavior {
-    /// Merge all imports into a single use statement.
+    /// Merge imports from the same crate into a single use statement.
     One,
     /// Merge imports from the same crate into a single use statement.
     Crate,
@@ -23,11 +23,12 @@ pub enum MergeBehavior {
 impl MergeBehavior {
     fn is_tree_allowed(&self, tree: &ast::UseTree) -> bool {
         match self {
-            MergeBehavior::One | MergeBehavior::Crate => true,
+            MergeBehavior::Crate => true,
             // only simple single segment paths are allowed
             MergeBehavior::Module => {
                 tree.use_tree_list().is_none() && tree.path().map(path_len) <= Some(1)
             }
+            MergeBehavior::One => todo!(),
         }
     }
 }
@@ -102,58 +103,55 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
         }
         let rhs_path = rhs_t.path();
 
-        match (
-            use_trees
-                .binary_search_by(|lhs_t| path_cmp_bin_search(lhs_t.path(), rhs_path.as_ref())),
-            merge,
-            use_trees.is_empty(),
-        ) {
-            (Err(idx), MergeBehavior::One, false) | (Ok(idx), _, _) => {
+        match use_trees
+            .binary_search_by(|lhs_t| path_cmp_bin_search(lhs_t.path(), rhs_path.as_ref()))
+        {
+            Ok(idx) => {
                 let lhs_t = &mut use_trees[idx];
                 let lhs_path = lhs_t.path()?;
                 let rhs_path = rhs_path?;
-                let prefix = common_prefix(&lhs_path, &rhs_path);
-                if let Some((lhs_prefix, rhs_prefix)) = prefix {
-                    if lhs_prefix == lhs_path && rhs_prefix == rhs_path {
-                        let tree_is_self = |tree: &ast::UseTree| {
-                            tree.path().as_ref().map(path_is_self).unwrap_or(false)
-                        };
-                        // Check if only one of the two trees has a tree list, and
-                        // whether that then contains `self` or not. If this is the
-                        // case we can skip this iteration since the path without
-                        // the list is already included in the other one via `self`.
-                        let tree_contains_self = |tree: &ast::UseTree| {
-                            tree.use_tree_list()
-                                .map(|tree_list| tree_list.use_trees().any(|it| tree_is_self(&it)))
-                                // Glob imports aren't part of the use-tree lists,
-                                // so they need to be handled explicitly
-                                .or_else(|| tree.star_token().map(|_| false))
-                        };
-                        match (tree_contains_self(lhs_t), tree_contains_self(&rhs_t)) {
-                            (Some(true), None) => continue,
-                            (None, Some(true)) => {
-                                ted::replace(lhs_t.syntax(), rhs_t.syntax());
-                                *lhs_t = rhs_t;
-                                continue;
-                            }
-                            _ => (),
-                        }
-
-                        if lhs_t.is_simple_path() && rhs_t.is_simple_path() {
+                let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
+                if lhs_prefix == lhs_path && rhs_prefix == rhs_path {
+                    let tree_is_self = |tree: &ast::UseTree| {
+                        tree.path().as_ref().map(path_is_self).unwrap_or(false)
+                    };
+                    // Check if only one of the two trees has a tree list, and
+                    // whether that then contains `self` or not. If this is the
+                    // case we can skip this iteration since the path without
+                    // the list is already included in the other one via `self`.
+                    let tree_contains_self = |tree: &ast::UseTree| {
+                        tree.use_tree_list()
+                            .map(|tree_list| tree_list.use_trees().any(|it| tree_is_self(&it)))
+                            // Glob imports aren't part of the use-tree lists,
+                            // so they need to be handled explicitly
+                            .or_else(|| tree.star_token().map(|_| false))
+                    };
+                    match (tree_contains_self(lhs_t), tree_contains_self(&rhs_t)) {
+                        (Some(true), None) => continue,
+                        (None, Some(true)) => {
+                            ted::replace(lhs_t.syntax(), rhs_t.syntax());
+                            *lhs_t = rhs_t;
                             continue;
                         }
-                        lhs_t.split_prefix(&lhs_prefix);
-                        rhs_t.split_prefix(&rhs_prefix);
+                        _ => (),
+                    }
+
+                    if lhs_t.is_simple_path() && rhs_t.is_simple_path() {
+                        continue;
                     }
                 }
+                lhs_t.split_prefix(&lhs_prefix);
+                rhs_t.split_prefix(&rhs_prefix);
                 recursive_merge(lhs_t, &rhs_t, merge)?;
             }
-            (Err(_), MergeBehavior::Module, _)
-                if !use_trees.is_empty() && rhs_t.use_tree_list().is_some() =>
+            Err(_)
+                if merge == MergeBehavior::Module
+                    && !use_trees.is_empty()
+                    && rhs_t.use_tree_list().is_some() =>
             {
                 return None
             }
-            (Err(idx), _, _) => {
+            Err(idx) => {
                 use_trees.insert(idx, rhs_t.clone());
                 lhs.get_or_create_use_tree_list().add_use_tree(rhs_t);
             }
@@ -167,7 +165,6 @@ pub fn common_prefix(lhs: &ast::Path, rhs: &ast::Path) -> Option<(ast::Path, ast
     let mut res = None;
     let mut lhs_curr = lhs.first_qualifier_or_self();
     let mut rhs_curr = rhs.first_qualifier_or_self();
-
     loop {
         match (lhs_curr.segment(), rhs_curr.segment()) {
             (Some(lhs), Some(rhs)) if lhs.syntax().text() == rhs.syntax().text() => (),

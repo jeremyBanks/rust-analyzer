@@ -277,26 +277,18 @@ fn guess_granularity_from_scope(scope: &ImportScope) -> ImportGranularityGuess {
     }
     .filter_map(use_stmt);
     let mut res = ImportGranularityGuess::Unknown;
-
-    let mut count = 0;
-
     let (mut prev, mut prev_vis, mut prev_attrs) = match use_stmts.next() {
         Some(it) => it,
         None => return res,
     };
     loop {
-        count += 1;
-
         if let Some(use_tree_list) = prev.use_tree_list() {
             if use_tree_list.use_trees().any(|tree| tree.use_tree_list().is_some()) {
-                // Nested tree lists can only occur in `crate` style, `one` style,
-                // or with no proper style being enforced in the file.
-                if count == 1
-                    && prev.path().is_none()
-                    && use_tree_list.use_trees().take(2).count() > 1
-                {
-                    res = ImportGranularityGuess::One;
+                if prev.path().is_none() {
+                    // Path-free tree lists can only occur in `one` style.
+                    break ImportGranularityGuess::One;
                 } else {
+                    // Other nested tree lists can only occur in crate style, or with no proper style being enforced in the file.
                     break ImportGranularityGuess::Crate;
                 }
             } else {
@@ -309,10 +301,6 @@ fn guess_granularity_from_scope(scope: &ImportScope) -> ImportGranularityGuess {
             Some(it) => it,
             None => break res,
         };
-        if res == ImportGranularityGuess::One {
-            // there's more than one
-            res = ImportGranularityGuess::Crate;
-        }
         if eq_visibility(prev_vis, curr_vis.clone()) && eq_attrs(prev_attrs, curr_attrs.clone()) {
             if let Some((prev_path, curr_path)) = prev.path().zip(curr.path()) {
                 if let Some((prev_prefix, _)) = common_prefix(&prev_path, &curr_path) {
