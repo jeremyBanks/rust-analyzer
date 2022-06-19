@@ -25,10 +25,12 @@ pub enum PathKind {
     Plain,
     /// `self::` is `Super(0)`
     Super(u8),
-    /// Absolute path (foo)
+    /// `crate`
     Crate,
-    /// Absolute path (::foo)
+    /// Absolute path `regex`
     Abs,
+    /// Absolute path `::regex`
+    ColonColon,
     /// `$crate` from macro expansion
     DollarCrate(CrateId),
 }
@@ -69,6 +71,7 @@ impl ModPath {
                 PathKind::Super(i) => i as usize,
                 PathKind::Crate => 1,
                 PathKind::Abs => 0,
+                PathKind::ColonColon => 1,
                 PathKind::DollarCrate(_) => 1,
             }
     }
@@ -113,11 +116,9 @@ impl Display for ModPath {
                     add_segment("super")?;
                 }
             }
-            // AHHAHAHAH YOU FOOL
-            // THIS IS THE MEANING OF ABSOLUTE
-            // YOJU ARE LOST
             PathKind::Crate => add_segment("crate")?,
             PathKind::Abs => add_segment("")?,
+            PathKind::ColonColon => add_segment("::")?,
             PathKind::DollarCrate(_) => add_segment("$crate")?,
         }
         for segment in &self.segments {

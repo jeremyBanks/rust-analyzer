@@ -1206,6 +1206,7 @@ impl HirDisplay for Path {
             }
             (_, PathKind::Plain) => {}
             (_, PathKind::Abs) => {}
+            (_, PathKind::ColonColon) => write!(f, "::")?,
             (_, PathKind::Crate) => write!(f, "crate")?,
             (_, PathKind::Super(0)) => write!(f, "self")?,
             (_, PathKind::Super(n)) => {

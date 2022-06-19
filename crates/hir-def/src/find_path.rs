@@ -77,7 +77,7 @@ pub enum PrefixKind {
     Plain,
     /// Causes paths to start with `crate` where applicable, effectively forcing paths to be absolute.
     ByCrate,
-    /// Causes paths to start with `::crate` where applicable, effectively forcing paths to be absolute.
+    /// Like `ByCrate`, but adds the `::` prefix.
     Absolute,
 }
 
@@ -88,7 +88,7 @@ impl PrefixKind {
             PrefixKind::BySelf => PathKind::Super(0),
             PrefixKind::Plain => PathKind::Plain,
             PrefixKind::ByCrate => PathKind::Crate,
-            PrefixKind::Absolute => PathKind::Abs,
+            PrefixKind::Absolute => PathKind::ColonColon,
         }
     }
 }
@@ -165,7 +165,7 @@ fn find_path_inner_(
                     .is_some();
                 let kind = if name_already_occupied_in_type_ns {
                     cov_mark::hit!(ambiguous_crate_start);
-                    PathKind::Abs
+                    if prefixed == Some(PrefixKind::Absolute) { PathKind::ColonColon } else { PathKind::Abs }
                 } else {
                     PathKind::Plain
                 };
@@ -456,7 +456,7 @@ $0
             "S",
             "crate::S",
             "self::S",
-            "::crate::S"
+            "crate::S"
         );
     }
 

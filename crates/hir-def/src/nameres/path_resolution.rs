@@ -259,7 +259,7 @@ impl DefMap {
                 })
                 .expect("block DefMap not rooted in crate DefMap")
             }
-            PathKind::Abs => {
+            PathKind::Abs | PathKind::ColonColon => {
                 // 2018-style absolute path -- only extern prelude
                 let segment = match segments.next() {
                     Some((_, segment)) => segment,
