@@ -1059,8 +1059,9 @@ impl Config {
             enforce_granularity: self.data.imports_granularity_enforce,
             prefix_kind: match self.data.imports_prefix {
                 ImportPrefixDef::Plain => PrefixKind::Plain,
-                ImportPrefixDef::ByCrate => PrefixKind::ByCrate,
                 ImportPrefixDef::BySelf => PrefixKind::BySelf,
+                ImportPrefixDef::ByCrate => PrefixKind::ByCrate,
+                ImportPrefixDef::Absolute => PrefixKind::Absolute,
             },
             group: self.data.imports_group_enable,
             skip_glob_imports: !self.data.imports_merge_glob,
@@ -1491,6 +1492,7 @@ enum ImportPrefixDef {
     BySelf,
     #[serde(alias = "crate")]
     ByCrate,
+    Absolute,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -1712,12 +1714,14 @@ fn field_props(field: &str, ty: &str, doc: &[&str], default: &str) -> serde_json
             "enum": [
                 "plain",
                 "self",
-                "crate"
+                "crate",
+                "absolute"
             ],
             "enumDescriptions": [
                 "Insert import paths relative to the current module, using up to one `super` prefix if the parent module contains the requested item.",
                 "Insert import paths relative to the current module, using up to one `super` prefix if the parent module contains the requested item. Prefixes `self` in front of the path if it starts with a module.",
-                "Force import paths to be absolute by always starting them with `crate` or the extern crate name they come from."
+                "Force import paths to be absolute by always starting them with `crate` or the extern crate name they come from.",
+                "Force import paths to be absolute by always starting them with `crate`, or with `::` and the extern crate name they come from."
             ],
         },
         "Vec<ManifestOrProjectJson>" => set! {

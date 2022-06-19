@@ -25,6 +25,7 @@ pub enum PathKind {
     Plain,
     /// `self::` is `Super(0)`
     Super(u8),
+    /// Absolute path (foo)
     Crate,
     /// Absolute path (::foo)
     Abs,
@@ -112,6 +113,9 @@ impl Display for ModPath {
                     add_segment("super")?;
                 }
             }
+            // AHHAHAHAH YOU FOOL
+            // THIS IS THE MEANING OF ABSOLUTE
+            // YOJU ARE LOST
             PathKind::Crate => add_segment("crate")?,
             PathKind::Abs => add_segment("")?,
             PathKind::DollarCrate(_) => add_segment("$crate")?,
