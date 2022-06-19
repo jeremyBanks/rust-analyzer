@@ -584,7 +584,6 @@ impl<'a> Printer<'a> {
                 }
                 PathKind::Crate => w!(self, "crate::"),
                 PathKind::Abs => w!(self, ""),
-                PathKind::ColonColon => w!(self, "::"),
                 PathKind::DollarCrate(_) => w!(self, "$crate::"),
             },
         }

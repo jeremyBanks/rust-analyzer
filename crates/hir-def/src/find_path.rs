@@ -88,7 +88,7 @@ impl PrefixKind {
             PrefixKind::BySelf => PathKind::Super(0),
             PrefixKind::Plain => PathKind::Plain,
             PrefixKind::ByCrate => PathKind::Crate,
-            PrefixKind::Absolute => PathKind::ColonColon,
+            PrefixKind::Absolute => PathKind::Abs,
         }
     }
 }
@@ -165,7 +165,7 @@ fn find_path_inner_(
                     .is_some();
                 let kind = if name_already_occupied_in_type_ns {
                     cov_mark::hit!(ambiguous_crate_start);
-                    if prefixed == Some(PrefixKind::Absolute) { PathKind::ColonColon } else { PathKind::Abs }
+                    PathKind::Abs
                 } else {
                     PathKind::Plain
                 };
@@ -456,7 +456,7 @@ $0
             "S",
             "crate::S",
             "self::S",
-            "crate::S"
+            "crate::S",
         );
     }
 
@@ -471,7 +471,7 @@ $0
             "E::A",
             "E::A",
             "E::A",
-            "::E::A"
+            "::E::A",
         );
     }
 

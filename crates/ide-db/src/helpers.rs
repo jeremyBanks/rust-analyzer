@@ -43,7 +43,7 @@ pub fn mod_path_to_ast(path: &hir::ModPath) -> ast::Path {
         hir::PathKind::DollarCrate(_) | hir::PathKind::Crate => {
             segments.push(make::path_segment_crate())
         }
-        hir::PathKind::Abs | hir::PathKind::ColonColon => is_abs = true,
+        hir::PathKind::Abs => is_abs = true,
     }
 
     segments.extend(

@@ -8,7 +8,7 @@ use ide_db::{
         insert_use::{insert_use, ImportScope},
     },
 };
-use syntax::{ast, AstNode, NodeOrToken, SyntaxElement};
+use syntax::{ast, AstNode, AstToken, NodeOrToken, SyntaxElement};
 
 use crate::{AssistContext, AssistId, AssistKind, Assists, GroupLabel};
 
@@ -91,6 +91,15 @@ pub(crate) fn auto_import(acc: &mut Assists, ctx: &AssistContext) -> Option<()> 
     let (import_assets, syntax_under_caret) = find_importable_node(ctx)?;
     let mut proposed_imports =
         import_assets.search_for_imports(&ctx.sema, ctx.config.insert_use.prefix_kind);
+
+    if ctx.config.insert_use.prefix_kind == PrefixKind::Absolute {
+        for proposed_import in proposed_imports.iter_mut() {
+            if proposed_import.import_path.kind == ImportPathKind::Absolute {
+                proposed_import.import_path.path.segments.insert(0, "".into());
+            }
+        }
+    }
+
     if proposed_imports.is_empty() {
         return None;
     }
@@ -135,7 +144,12 @@ pub(crate) fn auto_import(acc: &mut Assists, ctx: &AssistContext) -> Option<()> 
                     ImportScope::Module(it) => ImportScope::Module(builder.make_mut(it)),
                     ImportScope::Block(it) => ImportScope::Block(builder.make_mut(it)),
                 };
-                insert_use(&scope, mod_path_to_ast(&import.import_path), &ctx.config.insert_use);
+                let mut ast = mod_path_to_ast(&import.import_path);
+                // TODO: we want to add a coloncolon token before ast.syntax()
+
+                syntax::ted::insert(Position::before(ast), T![::]);
+
+                insert_use(&scope, ast, &ctx.config.insert_use);
             },
         );
     }
