@@ -2,6 +2,7 @@
 use std::cmp::Ordering;
 
 use itertools::{EitherOrBoth, Itertools};
+use parser::T;
 use syntax::{
     ast::{self, AstNode, HasAttrs, HasVisibility, PathSegmentKind},
     ted,
@@ -35,11 +36,7 @@ impl MergeBehavior {
 
 /// Merge `rhs` into `lhs` keeping both intact.
 /// Returned AST is mutable.
-pub fn try_merge_imports(
-    lhs: &ast::Use,
-    rhs: &ast::Use,
-    merge_behavior: MergeBehavior,
-) -> Option<ast::Use> {
+pub fn try_merge_imports(lhs: &ast::Use, rhs: &ast::Use, merge: MergeBehavior) -> Option<ast::Use> {
     // don't merge imports with different visibilities
     if !eq_visibility(lhs.visibility(), rhs.visibility()) {
         return None;
@@ -52,7 +49,8 @@ pub fn try_merge_imports(
     let rhs = rhs.clone_subtree().clone_for_update();
     let lhs_tree = lhs.use_tree()?;
     let rhs_tree = rhs.use_tree()?;
-    try_merge_trees_mut(&lhs_tree, &rhs_tree, merge_behavior)?;
+    try_merge_trees_mut(&lhs_tree, &rhs_tree, merge)
+        .or_else(|| merge_trees_into_one(&lhs_tree, &rhs_tree, merge))?;
     Some(lhs)
 }
 
@@ -65,7 +63,7 @@ pub fn try_merge_trees(
 ) -> Option<ast::UseTree> {
     let lhs = lhs.clone_subtree().clone_for_update();
     let rhs = rhs.clone_subtree().clone_for_update();
-    try_merge_trees_mut(&lhs, &rhs, merge)?;
+    try_merge_trees_mut(&lhs, &rhs, merge).or_else(|| merge_trees_into_one(&lhs, &rhs, merge))?;
     Some(lhs)
 }
 
@@ -83,6 +81,53 @@ fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehav
         rhs.split_prefix(&rhs_prefix);
     }
     recursive_merge(lhs, rhs, merge)
+}
+
+fn merge_trees_into_one(
+    lhs: &ast::UseTree,
+    rhs: &ast::UseTree,
+    merge: MergeBehavior,
+) -> Option<()> {
+    if merge != MergeBehavior::One {
+        return None;
+    }
+
+    let cc = lhs.coloncolon_token().zip(rhs.coloncolon_token()).is_some();
+
+    let use_trees = Vec::new();
+
+    // lhs.split_prefix(&lhs.path()?);
+    // rhs.split_prefix(&rhs.path()?);
+
+    let lhs_cc = lhs.coloncolon_token().is_some();
+    let rhs_cc = rhs.coloncolon_token().is_some();
+
+    let lhs_list = lhs.get_or_create_use_tree_list();
+    for rhs_tree in rhs.get_or_create_use_tree_list().use_trees() {
+        lhs_list.add_use_tree(rhs_tree);
+    }
+
+    // let subtree = self.clone_subtree().clone_for_update();
+    // ted::remove_all_iter(self.syntax().children_with_tokens());
+    // ted::insert(Position::first_child_of(self.syntax()), prefix.syntax());
+    // self.get_or_create_use_tree_list().add_use_tree(subtree);
+
+    // match (lhs.coloncolon_token().is_some(), rhs.coloncolon_token().is_some()) {
+    //     _ => {}
+    // }
+
+    // let before_lhs = ted::Position::before(lhs_path.syntax().first_child()?);
+    // let before_rhs = ted::Position::before(rhs_path.syntax().first_child()?);
+    // ted::insert_all(before_lhs, vec![ast::make::token(T![::]).into()]);
+    // ted::insert_all(before_rhs, vec![ast::make::token(T![::]).into()]);
+
+    let merged = ast::make::use_tree_list(use_trees);
+
+    lhs.coloncolon_token().map(|cc| ted::remove(cc.syntax()));
+    lhs.path().map(|path| ted::remove(path.syntax()));
+
+    ted::replace(lhs.get_or_create_use_tree_list().syntax(), merged.syntax());
+    Some(())
 }
 
 /// Recursively merges rhs to lhs
