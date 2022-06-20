@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use itertools::{EitherOrBoth, Itertools};
 use syntax::{
     ast::{self, AstNode, HasAttrs, HasVisibility, PathSegmentKind},
-    ted,
+    ted::{self, Position},
 };
 
 use crate::syntax_helpers::node_ext::vis_eq;
@@ -170,13 +170,25 @@ pub fn common_prefix(
         if lhs.qualifier().is_none()
             && rhs.qualifier().is_none()
             && lhs.coloncolon_token().is_some()
-            && rhs.coloncolon_token().is_none()
+            && rhs.coloncolon_token().is_some()
         {
-            let abs = ast::make::path_from_segments([], true);
-            Some((abs.clone(), abs))
+            let lhs_one = lhs.clone_subtree().clone_for_update();
+            let rhs_one = rhs.clone_subtree().clone_for_update();
+
+            ted::remove(lhs_one.segment()?.syntax());
+            ted::remove(rhs_one.segment()?.syntax());
+
+            Some((lhs_one, rhs_one))
         } else {
-            let empty = ast::make::path_from_segments([], false);
-            Some((empty.clone(), empty))
+            let lhs_one = lhs.clone_subtree().clone_for_update();
+            let rhs_one = rhs.clone_subtree().clone_for_update();
+
+            ted::remove(lhs_one.segment()?.syntax());
+            ted::remove(rhs_one.segment()?.syntax());
+            ted::remove(lhs_one.coloncolon_token()?);
+            ted::remove(rhs_one.coloncolon_token()?);
+
+            Some((lhs_one, rhs_one))
         }
     } else {
         None

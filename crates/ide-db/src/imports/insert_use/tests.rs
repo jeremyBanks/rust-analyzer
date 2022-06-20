@@ -693,17 +693,29 @@ use std::io;
     )
 }
 
+
 #[test]
-fn merge_groups_one() {
-    // check_one("alfa", r"use alfa::bravo;", r"use alfa::{bravo, self};");
-    // check_one("alfa", r"use bravo::charlie;", r"use {alfa, bravo::charlie};");
-    // check_one("alfa", r"use {alfa, bravo::charlie};", r"use {alfa, bravo::charlie};");
-    // check_one("alfa", r"use ::bravo::charlie;", r"use {alfa, ::bravo::charlie};");
-    // check_one("::alfa", r"use bravo::charlie;", r"use {::alfa, bravo::charlie};");
+fn merge_one_bare() {
+    check_one("alfa", r"use alfa::bravo;", r"use alfa::{bravo, self};");
+    check_one("alfa", r"use bravo::charlie;", r"use {alfa, bravo::charlie};");
+    check_one("alfa", r"use {alfa, bravo::charlie};", r"use {alfa, bravo::charlie};");
+    check_one("alfa", r"use {bravo, charlie};", r"use {alfa, bravo, charlie};");
+}
+
+#[test]
+fn merge_one_coloncolon() {
     check_one("::alfa", r"use ::bravo::charlie;", r"use ::{alfa, bravo::charlie};");
-    // check_one("alfa", r"use {bravo, charlie};", r"use {alfa, bravo, charlie};");
-    // check_one("alfa", r"use ::{bravo, charlie};", r"use {alfa, ::{bravo, charlie}};");
-    // check_one("::alfa", r"use {bravo, charlie};", r"use {::alfa, {bravo, charlie}};");
+    check_one("::alfa", r"use ::{bravo, charlie};", r"use ::{alfa, bravo, charlie};");
+
+}
+
+#[test]
+fn merge_one_mixed() {
+    check_one("alfa", r"use ::bravo::charlie;", r"use {alfa, ::bravo::charlie};");
+    check_one("::alfa", r"use bravo::charlie;", r"use {::alfa, bravo::charlie};");
+    check_one("alfa", r"use ::{bravo, charlie};", r"use {alfa, ::{bravo, charlie}};");
+    check_one("::alfa", r"use {bravo, charlie};", r"use {::alfa, {bravo, charlie}};");
+
 }
 
 #[test]
