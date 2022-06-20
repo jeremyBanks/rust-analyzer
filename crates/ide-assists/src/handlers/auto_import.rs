@@ -8,7 +8,7 @@ use ide_db::{
         insert_use::{insert_use, ImportScope},
     },
 };
-use syntax::{ast, AstNode, NodeOrToken, SyntaxElement};
+use syntax::{ast, ted::Position, AstNode, NodeOrToken, SyntaxElement, T};
 
 use crate::{AssistContext, AssistId, AssistKind, Assists, GroupLabel};
 
@@ -135,7 +135,16 @@ pub(crate) fn auto_import(acc: &mut Assists, ctx: &AssistContext) -> Option<()> 
                     ImportScope::Module(it) => ImportScope::Module(builder.make_mut(it)),
                     ImportScope::Block(it) => ImportScope::Block(builder.make_mut(it)),
                 };
-                insert_use(&scope, mod_path_to_ast(&import.import_path), &ctx.config.insert_use);
+                let ast = mod_path_to_ast(&import.import_path);
+                // Add `::` prefix to for absolute imports
+                if import.import_path.kind == hir::PathKind::Abs
+                    && ctx.config.insert_use.prefix_kind == hir::PrefixKind::Absolute
+                {
+                    let before_path = Position::before(ast.syntax());
+                    let cc = ast::make::token(T![::]);
+                    syntax::ted::insert(before_path, cc);
+                }
+                insert_use(&scope, ast, &ctx.config.insert_use);
             },
         );
     }

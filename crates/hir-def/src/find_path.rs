@@ -77,6 +77,8 @@ pub enum PrefixKind {
     Plain,
     /// Causes paths to start with `crate` where applicable, effectively forcing paths to be absolute.
     ByCrate,
+    /// Like `ByCrate`, but adds the `::` prefix.
+    Absolute,
 }
 
 impl PrefixKind {
@@ -86,12 +88,13 @@ impl PrefixKind {
             PrefixKind::BySelf => PathKind::Super(0),
             PrefixKind::Plain => PathKind::Plain,
             PrefixKind::ByCrate => PathKind::Crate,
+            PrefixKind::Absolute => PathKind::Abs,
         }
     }
 
     #[inline]
     fn is_absolute(&self) -> bool {
-        self == &PrefixKind::ByCrate
+        matches!(self, PrefixKind::ByCrate | PrefixKind::Absolute)
     }
 }
 /// Attempts to find a path to refer to the given `item` visible from the `from` ModuleId
@@ -436,13 +439,15 @@ mod tests {
         ra_fixture: &str,
         unprefixed: &str,
         prefixed: &str,
-        absolute: &str,
+        crate_prefixed: &str,
         self_prefixed: &str,
+        absolute_prefixed: &str,
     ) {
         check_found_path_(ra_fixture, unprefixed, None);
         check_found_path_(ra_fixture, prefixed, Some(PrefixKind::Plain));
-        check_found_path_(ra_fixture, absolute, Some(PrefixKind::ByCrate));
+        check_found_path_(ra_fixture, crate_prefixed, Some(PrefixKind::ByCrate));
         check_found_path_(ra_fixture, self_prefixed, Some(PrefixKind::BySelf));
+        check_found_path_(ra_fixture, absolute_prefixed, Some(PrefixKind::Absolute));
     }
 
     #[test]
@@ -456,6 +461,7 @@ $0
             "S",
             "crate::S",
             "self::S",
+            "crate::S",
         );
     }
 
@@ -470,6 +476,7 @@ $0
             "E::A",
             "E::A",
             "E::A",
+            "::E::A",
         );
     }
 
@@ -486,6 +493,7 @@ $0
             "foo::S",
             "crate::foo::S",
             "self::foo::S",
+            "crate::foo::S",
         );
     }
 
@@ -505,6 +513,7 @@ $0
             "super::S",
             "crate::foo::S",
             "super::S",
+            "crate::foo::S",
         );
     }
 
@@ -521,6 +530,7 @@ $0
             "self",
             "crate::foo",
             "self",
+            "crate::foo",
         );
     }
 
@@ -533,6 +543,7 @@ mod foo;
 //- /foo.rs
 $0
         "#,
+            "crate",
             "crate",
             "crate",
             "crate",
@@ -554,6 +565,7 @@ $0
             "crate::S",
             "crate::S",
             "crate::S",
+            "crate::S",
         );
     }
 
@@ -570,6 +582,7 @@ pub struct S;
             "std::S",
             "std::S",
             "std::S",
+            "::std::S",
         );
     }
 
@@ -587,6 +600,7 @@ pub struct S;
             "std_renamed::S",
             "std_renamed::S",
             "std_renamed::S",
+            "::std_renamed::S",
         );
     }
 
@@ -613,6 +627,7 @@ pub mod ast {
             "syntax::ast::ModuleItem",
             "syntax::ast::ModuleItem",
             "syntax::ast::ModuleItem",
+            "::syntax::ast::ModuleItem",
         );
 
         check_found_path(
@@ -631,6 +646,7 @@ pub mod ast {
             "syntax::ast::ModuleItem",
             "syntax::ast::ModuleItem",
             "syntax::ast::ModuleItem",
+            "::syntax::ast::ModuleItem",
         );
     }
 
@@ -648,6 +664,7 @@ $0
             "bar::S",
             "crate::bar::S",
             "self::bar::S",
+            "crate::bar::S",
         );
     }
 
@@ -665,6 +682,7 @@ $0
             "bar::U",
             "crate::bar::U",
             "self::bar::U",
+            "crate::bar::U",
         );
     }
 
@@ -683,6 +701,7 @@ pub struct S;
             "std::S",
             "std::S",
             "std::S",
+            "::std::S",
         );
     }
 
@@ -703,6 +722,7 @@ pub mod prelude {
             "S",
             "S",
             "S",
+            "S",
         );
     }
 
@@ -719,8 +739,8 @@ pub mod prelude {
     }
 }
         "#;
-        check_found_path(code, "None", "None", "None", "None");
-        check_found_path(code, "Some", "Some", "Some", "Some");
+        check_found_path(code, "None", "None", "None", "None", "None");
+        check_found_path(code, "Some", "Some", "Some", "Some", "Some");
     }
 
     #[test]
@@ -741,6 +761,7 @@ pub use crate::foo::bar::S;
             "baz::S",
             "crate::baz::S",
             "self::baz::S",
+            "crate::baz::S",
         );
     }
 
@@ -756,6 +777,7 @@ use bar::S;
 $0
         "#,
             // crate::S would be shorter, but using private imports seems wrong
+            "crate::bar::S",
             "crate::bar::S",
             "crate::bar::S",
             "crate::bar::S",
@@ -779,6 +801,7 @@ pub struct S;
 //- /baz.rs
 pub use super::foo;
         "#,
+            "crate::foo::S",
             "crate::foo::S",
             "crate::foo::S",
             "crate::foo::S",
@@ -808,6 +831,7 @@ pub mod sync {
             "std::sync::Arc",
             "std::sync::Arc",
             "std::sync::Arc",
+            "::std::sync::Arc",
         );
     }
 
@@ -837,6 +861,7 @@ pub mod fmt {
             "core::fmt::Error",
             "core::fmt::Error",
             "core::fmt::Error",
+            "::core::fmt::Error",
         );
 
         // Should also work (on a best-effort basis) if `no_std` is conditional.
@@ -863,6 +888,7 @@ pub mod fmt {
             "core::fmt::Error",
             "core::fmt::Error",
             "core::fmt::Error",
+            "::core::fmt::Error",
         );
     }
 
@@ -891,6 +917,7 @@ pub mod sync {
             "alloc::sync::Arc",
             "alloc::sync::Arc",
             "alloc::sync::Arc",
+            "::alloc::sync::Arc",
         );
     }
 
@@ -913,6 +940,7 @@ pub struct Arc;
             "megaalloc::Arc",
             "megaalloc::Arc",
             "megaalloc::Arc",
+            "::megaalloc::Arc",
         );
     }
 
@@ -925,8 +953,8 @@ pub mod primitive {
     pub use u8;
 }
         "#;
-        check_found_path(code, "u8", "u8", "u8", "u8");
-        check_found_path(code, "u16", "u16", "u16", "u16");
+        check_found_path(code, "u8", "u8", "u8", "u8", "u8");
+        check_found_path(code, "u16", "u16", "u16", "u16", "u16");
     }
 
     #[test]
@@ -938,6 +966,7 @@ fn main() {
     $0
 }
         "#,
+            "Inner",
             "Inner",
             "Inner",
             "Inner",
@@ -956,6 +985,7 @@ fn main() {
     }
 }
         "#,
+            "Struct",
             "Struct",
             "Struct",
             "Struct",
@@ -981,6 +1011,7 @@ fn main() {
             "module::Struct",
             "module::Struct",
             "module::Struct",
+            "module::Struct",
         );
     }
 
@@ -999,6 +1030,7 @@ fn main() {
             "#,
             // FIXME: these could use fewer/better prefixes
             "module::CompleteMe",
+            "crate::module::CompleteMe",
             "crate::module::CompleteMe",
             "crate::module::CompleteMe",
             "crate::module::CompleteMe",
@@ -1025,6 +1057,7 @@ mod bar {
             "crate::baz::Foo",
             "crate::baz::Foo",
             "crate::baz::Foo",
+            "crate::baz::Foo",
         )
     }
 
@@ -1043,6 +1076,7 @@ mod bar {
     }
 }
             "#,
+            "crate::baz::Foo",
             "crate::baz::Foo",
             "crate::baz::Foo",
             "crate::baz::Foo",
@@ -1075,6 +1109,7 @@ pub mod name {
             "name::AsName",
             "crate::name::AsName",
             "self::name::AsName",
+            "crate::name::AsName",
         );
     }
 
@@ -1090,6 +1125,7 @@ $0
             "dep",
             "dep",
             "dep",
+            "::dep",
         );
 
         check_found_path(
@@ -1105,6 +1141,7 @@ fn f() {
             "dep",
             "dep",
             "dep",
+            "::dep",
         );
     }
 
@@ -1125,6 +1162,7 @@ pub mod prelude {
     }
 }
         "#,
+            "None",
             "None",
             "None",
             "None",

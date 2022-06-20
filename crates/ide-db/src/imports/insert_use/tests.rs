@@ -558,6 +558,24 @@ fn merge_groups() {
 }
 
 #[test]
+fn merge_groups_absolute() {
+    check_module("::std::io", r"use ::std::fmt;", r"use ::std::{fmt, io};");
+
+    check_module(
+        "std::io",
+        r"use ::std::fmt;",
+        r"use ::std::fmt;
+use std::io;",
+    );
+    check_module(
+        "::std::io",
+        r"use std::fmt;",
+        r"use std::fmt;
+use ::std::io;",
+    );
+}
+
+#[test]
 fn merge_groups_last() {
     check_module(
         "std::io",
@@ -656,6 +674,28 @@ fn merge_groups_last_nested_long() {
         "std::foo::bar::Baz",
         r"use std::{foo::bar::Qux};",
         r"use std::{foo::bar::{Qux, Baz}};",
+    );
+}
+
+#[test]
+fn merge_groups_full_nested_long_absolute() {
+    check_crate(
+        "::std::foo::bar::Baz",
+        r"use ::std::{foo::bar::Qux};",
+        r"use ::std::{foo::bar::{Qux, Baz}};",
+    );
+
+    check_crate(
+        "::std::foo::bar::Baz",
+        r"use std::{foo::bar::Qux};",
+        r"use ::std::foo::bar::Baz;
+use std::{foo::bar::Qux};",
+    );
+    check_crate(
+        "std::foo::bar::Baz",
+        r"use ::std::{foo::bar::Qux};",
+        r"use std::foo::bar::Baz;
+use ::std::{foo::bar::Qux};",
     );
 }
 

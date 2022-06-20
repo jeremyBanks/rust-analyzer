@@ -781,12 +781,14 @@
                     "enum": [
                         "plain",
                         "self",
-                        "crate"
+                        "crate",
+                        "absolute"
                     ],
                     "enumDescriptions": [
                         "Insert import paths relative to the current module, using up to one `super` prefix if the parent module contains the requested item.",
                         "Insert import paths relative to the current module, using up to one `super` prefix if the parent module contains the requested item. Prefixes `self` in front of the path if it starts with a module.",
-                        "Force import paths to be absolute by always starting them with `crate` or the extern crate name they come from."
+                        "Force import paths to be absolute by always starting them with `crate` or the extern crate name they come from.",
+                        "Force import paths to be absolute by always starting them with `crate`, or with `::` and the extern crate name they come from."
                     ]
                 },
                 "rust-analyzer.inlayHints.bindingModeHints.enable": {
@@ -1114,11 +1116,6 @@
                         "Search in current workspace only.",
                         "Search in current workspace and dependencies."
                     ]
-                },
-                "rust-analyzer.restartServerOnConfigChange": {
-                    "markdownDescription": "Whether to restart the server automatically when certain settings that require a restart are changed.",
-                    "default": false,
-                    "type": "boolean"
                 },
                 "$generated-end": {}
             }
