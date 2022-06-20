@@ -10,7 +10,6 @@ mod render;
 mod tests;
 mod snippet;
 
-use completions::flyimport::position_for_import;
 use ide_db::{
     base_db::FilePosition,
     helpers::mod_path_to_ast,
@@ -23,7 +22,10 @@ use ide_db::{
 use syntax::algo;
 use text_edit::TextEdit;
 
-use crate::{completions::Completions, context::CompletionContext};
+use crate::{
+    completions::Completions,
+    context::{CompletionContext, IdentContext, NameKind, NameRefContext, NameRefKind},
+};
 
 pub use crate::{
     config::{CallableSnippets, CompletionConfig},
@@ -145,40 +147,96 @@ pub fn completions(
     trigger_character: Option<char>,
 ) -> Option<Completions> {
     let ctx = &CompletionContext::new(db, position, config)?;
-    let mut acc = Completions::default();
+    let mut completions = Completions::default();
 
-    {
-        let acc = &mut acc;
-        // prevent `(` from triggering unwanted completion noise
-        if trigger_character != Some('(') {
-            completions::attribute::complete_attribute(acc, ctx);
-            completions::attribute::complete_derive(acc, ctx);
-            completions::attribute::complete_known_attribute_input(acc, ctx);
-            completions::dot::complete_dot(acc, ctx);
-            completions::expr::complete_expr_path(acc, ctx);
-            completions::extern_abi::complete_extern_abi(acc, ctx);
-            completions::field::complete_field_list(acc, ctx);
-            completions::flyimport::import_on_the_fly(acc, ctx);
-            completions::fn_param::complete_fn_param(acc, ctx);
-            completions::format_string::format_string(acc, ctx);
-            completions::item_list::complete_item_list(acc, ctx);
-            completions::keyword::complete_expr_keyword(acc, ctx);
-            completions::lifetime::complete_label(acc, ctx);
-            completions::lifetime::complete_lifetime(acc, ctx);
-            completions::mod_::complete_mod(acc, ctx);
-            completions::pattern::complete_pattern(acc, ctx);
-            completions::postfix::complete_postfix(acc, ctx);
-            completions::record::complete_record(acc, ctx);
-            completions::snippet::complete_expr_snippet(acc, ctx);
-            completions::snippet::complete_item_snippet(acc, ctx);
-            completions::r#type::complete_type_path(acc, ctx);
-            completions::r#type::complete_inferred_type(acc, ctx);
-            completions::use_::complete_use_tree(acc, ctx);
+    // prevent `(` from triggering unwanted completion noise
+    if trigger_character == Some('(') {
+        if let IdentContext::NameRef(NameRefContext { kind: NameRefKind::Path(path_ctx), .. }) =
+            &ctx.ident_ctx
+        {
+            completions::vis::complete_vis_path(&mut completions, ctx, path_ctx);
         }
-        completions::vis::complete_vis_path(acc, ctx);
+        // prevent `(` from triggering unwanted completion noise
+        return Some(completions);
     }
 
-    Some(acc)
+    {
+        let acc = &mut completions;
+
+        match &ctx.ident_ctx {
+            IdentContext::Name(name_ctx) => {
+                completions::field::complete_field_list_record_variant(acc, ctx, name_ctx);
+                completions::item_list::trait_impl::complete_trait_impl_name(acc, ctx, name_ctx);
+                completions::mod_::complete_mod(acc, ctx, name_ctx);
+                if let NameKind::IdentPat(pattern_ctx) = &name_ctx.kind {
+                    completions::flyimport::import_on_the_fly_pat(acc, ctx, pattern_ctx);
+                    completions::fn_param::complete_fn_param(acc, ctx, pattern_ctx);
+                    completions::pattern::complete_pattern(acc, ctx, pattern_ctx);
+                    completions::record::complete_record_pattern_fields(acc, ctx, pattern_ctx);
+                }
+            }
+            IdentContext::NameRef(name_ctx @ NameRefContext { kind, .. }) => {
+                completions::item_list::trait_impl::complete_trait_impl_name_ref(
+                    acc, ctx, name_ctx,
+                );
+                completions::use_::complete_use_tree(acc, ctx, name_ctx);
+
+                match kind {
+                    NameRefKind::Path(path_ctx) => {
+                        completions::attribute::complete_attribute(acc, ctx, path_ctx);
+                        completions::attribute::complete_derive(acc, ctx, path_ctx);
+                        completions::dot::complete_undotted_self(acc, ctx, path_ctx);
+                        completions::expr::complete_expr_path(acc, ctx, path_ctx);
+                        completions::field::complete_field_list_tuple_variant(acc, ctx, path_ctx);
+                        completions::flyimport::import_on_the_fly_path(acc, ctx, path_ctx);
+                        completions::item_list::complete_item_list(acc, ctx, path_ctx);
+                        completions::pattern::pattern_path_completion(acc, ctx, path_ctx);
+                        completions::r#type::complete_inferred_type(acc, ctx, path_ctx);
+                        completions::r#type::complete_type_path(acc, ctx, path_ctx);
+                        completions::record::complete_record_expr_func_update(acc, ctx, path_ctx);
+                        completions::snippet::complete_expr_snippet(acc, ctx, path_ctx);
+                        completions::snippet::complete_item_snippet(acc, ctx, path_ctx);
+                        completions::vis::complete_vis_path(acc, ctx, path_ctx);
+                    }
+                    NameRefKind::DotAccess(dot_access) => {
+                        completions::flyimport::import_on_the_fly_dot(acc, ctx, dot_access);
+                        completions::dot::complete_dot(acc, ctx, dot_access);
+                        completions::postfix::complete_postfix(acc, ctx, dot_access);
+                    }
+                    NameRefKind::Keyword(item) => {
+                        completions::keyword::complete_special_keywords(acc, ctx, item);
+                    }
+                    NameRefKind::RecordExpr(record_expr) => {
+                        completions::record::complete_record_expr_fields_record_expr(
+                            acc,
+                            ctx,
+                            record_expr,
+                        );
+                    }
+                    NameRefKind::Pattern(pattern_ctx) => {
+                        completions::flyimport::import_on_the_fly_pat(acc, ctx, pattern_ctx);
+                        completions::fn_param::complete_fn_param(acc, ctx, pattern_ctx);
+                        completions::pattern::complete_pattern(acc, ctx, pattern_ctx);
+                        completions::record::complete_record_pattern_fields(acc, ctx, pattern_ctx);
+                    }
+                }
+            }
+            IdentContext::Lifetime(lifetime_ctx) => {
+                completions::lifetime::complete_label(acc, ctx, lifetime_ctx);
+                completions::lifetime::complete_lifetime(acc, ctx, lifetime_ctx);
+            }
+            IdentContext::String { original, expanded: Some(expanded) } => {
+                completions::extern_abi::complete_extern_abi(acc, ctx, expanded);
+                completions::format_string::format_string(acc, ctx, original, expanded);
+            }
+            IdentContext::UnexpandedAttrTT { fake_attribute_under_caret: Some(attr) } => {
+                completions::attribute::complete_known_attribute_input(acc, ctx, attr);
+            }
+            IdentContext::UnexpandedAttrTT { .. } | IdentContext::String { .. } => (),
+        }
+    }
+
+    Some(completions)
 }
 
 /// Resolves additional completion data at the position given.
@@ -191,7 +249,7 @@ pub fn resolve_completion_edits(
 ) -> Option<Vec<TextEdit>> {
     let _p = profile::span("resolve_completion_edits");
     let ctx = CompletionContext::new(db, position, config)?;
-    let position_for_import = &position_for_import(&ctx, None)?;
+    let position_for_import = &ctx.original_token.parent()?;
     let scope = ImportScope::find_insert_use_container(position_for_import, &ctx.sema)?;
 
     let current_module = ctx.sema.scope(position_for_import)?.module();

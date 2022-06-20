@@ -4,13 +4,19 @@ use hir::ScopeDef;
 use ide_db::FxHashSet;
 
 use crate::{
-    context::{NameRefContext, NameRefKind, PathCompletionCtx, PathKind, Qualified},
+    context::{PathCompletionCtx, PathKind, Qualified},
     CompletionContext, Completions,
 };
 
-pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext) {
+pub(crate) fn complete_expr_path(
+    acc: &mut Completions,
+    ctx: &CompletionContext,
+    path_ctx: &PathCompletionCtx,
+) {
     let _p = profile::span("complete_expr_path");
-
+    if !ctx.qualifier_ctx.none() {
+        return;
+    }
     let (
         qualified,
         in_block_expr,
@@ -19,24 +25,27 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
         after_if_expr,
         wants_mut_token,
         in_condition,
-    ) = match ctx.nameref_ctx() {
-        Some(&NameRefContext {
+        ty,
+        incomplete_let,
+        impl_,
+    ) = match path_ctx {
+        &PathCompletionCtx {
             kind:
-                Some(NameRefKind::Path(PathCompletionCtx {
-                    kind:
-                        PathKind::Expr {
-                            in_block_expr,
-                            in_loop_body,
-                            after_if_expr,
-                            in_condition,
-                            ref ref_expr_parent,
-                            ref is_func_update,
-                        },
-                    ref qualified,
+                PathKind::Expr {
+                    in_block_expr,
+                    in_loop_body,
+                    after_if_expr,
+                    in_condition,
+                    incomplete_let,
+                    ref ref_expr_parent,
+                    ref is_func_update,
+                    ref innermost_ret_ty,
+                    ref impl_,
                     ..
-                })),
+                },
+            ref qualified,
             ..
-        }) if ctx.qualifier_ctx.none() => (
+        } => (
             qualified,
             in_block_expr,
             in_loop_body,
@@ -44,6 +53,9 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
             after_if_expr,
             ref_expr_parent.as_ref().map(|it| it.mut_token().is_none()).unwrap_or(false),
             in_condition,
+            innermost_ret_ty,
+            incomplete_let,
+            impl_,
         ),
         _ => return,
     };
@@ -65,11 +77,8 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
             .into_iter()
             .flat_map(|it| hir::Trait::from(it).items(ctx.sema.db))
             .for_each(|item| add_assoc_item(acc, ctx, item)),
-        Qualified::With { resolution, .. } => {
-            let resolution = match resolution {
-                Some(it) => it,
-                None => return,
-            };
+        Qualified::With { resolution: None, .. } => {}
+        Qualified::With { resolution: Some(resolution), .. } => {
             // Add associated types on type parameters and `Self`.
             ctx.scope.assoc_type_shorthand_candidates(resolution, |_, alias| {
                 acc.add_type_alias(ctx, alias);
@@ -175,8 +184,7 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
             if let Some(adt) =
                 ctx.expected_type.as_ref().and_then(|ty| ty.strip_references().as_adt())
             {
-                let self_ty =
-                    (|| ctx.sema.to_def(ctx.impl_def.as_ref()?)?.self_ty(ctx.db).as_adt())();
+                let self_ty = (|| ctx.sema.to_def(impl_.as_ref()?)?.self_ty(ctx.db).as_adt())();
                 let complete_self = self_ty == Some(adt);
 
                 match adt {
@@ -204,9 +212,15 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
                         }
                     }
                     hir::Adt::Enum(e) => {
-                        super::enum_variants_with_paths(acc, ctx, e, |acc, ctx, variant, path| {
-                            acc.add_qualified_enum_variant(ctx, variant, path)
-                        });
+                        super::enum_variants_with_paths(
+                            acc,
+                            ctx,
+                            e,
+                            impl_,
+                            |acc, ctx, variant, path| {
+                                acc.add_qualified_enum_variant(ctx, variant, path)
+                            },
+                        );
                     }
                 }
             }
@@ -217,7 +231,8 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
             });
 
             if !is_func_update {
-                let mut add_keyword = |kw, snippet| acc.add_keyword_snippet(ctx, kw, snippet);
+                let mut add_keyword =
+                    |kw, snippet| acc.add_keyword_snippet_expr(ctx, kw, snippet, incomplete_let);
 
                 if !in_block_expr {
                     add_keyword("unsafe", "unsafe {\n    $0\n}");
@@ -255,10 +270,10 @@ pub(crate) fn complete_expr_path(acc: &mut Completions, ctx: &CompletionContext)
                     }
                 }
 
-                if let Some(fn_def) = &ctx.function_def {
+                if let Some(ty) = ty {
                     add_keyword(
                         "return",
-                        match (in_block_expr, fn_def.ret_type().is_some()) {
+                        match (in_block_expr, ty.is_unit()) {
                             (true, true) => "return ;",
                             (true, false) => "return;",
                             (false, true) => "return $0",

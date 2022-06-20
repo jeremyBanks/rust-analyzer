@@ -6,7 +6,10 @@ use itertools::Itertools;
 use syntax::SmolStr;
 
 use crate::{
-    context::{ParamKind, PathCompletionCtx, PatternContext},
+    context::{
+        IdentContext, NameContext, NameKind, NameRefContext, NameRefKind, ParamKind,
+        PathCompletionCtx, PathKind, PatternContext,
+    },
     render::{variant::visible_fields, RenderContext},
     CompletionItem, CompletionItemKind,
 };
@@ -78,8 +81,11 @@ fn render_pat(
     fields_omitted: bool,
 ) -> Option<String> {
     let has_call_parens = matches!(
-        ctx.completion.path_context(),
-        Some(PathCompletionCtx { has_call_parens: true, .. })
+        ctx.completion.ident_ctx,
+        IdentContext::NameRef(NameRefContext {
+            kind: NameRefKind::Path(PathCompletionCtx { has_call_parens: true, .. }),
+            ..
+        })
     );
     let mut pat = match kind {
         StructKind::Tuple if !has_call_parens => {
@@ -92,14 +98,27 @@ fn render_pat(
         _ => name.to_owned(),
     };
 
-    if matches!(
-        ctx.completion.pattern_ctx,
-        Some(PatternContext {
-            param_ctx: Some((.., ParamKind::Function(_))),
-            has_type_ascription: false,
-            ..
-        }) if !has_call_parens
-    ) {
+    let needs_ascription = !has_call_parens
+        && matches!(
+            &ctx.completion.ident_ctx,
+            IdentContext::NameRef(NameRefContext {
+                kind: NameRefKind::Path(PathCompletionCtx {
+                    kind: PathKind::Pat {
+                        pat_ctx
+                    },
+                    ..
+                }),
+                ..
+            }) | IdentContext::Name(NameContext {
+                kind: NameKind::IdentPat(pat_ctx), ..}
+            )
+            if matches!(pat_ctx, PatternContext {
+                param_ctx: Some((.., ParamKind::Function(_))),
+                has_type_ascription: false,
+                ..
+            })
+        );
+    if needs_ascription {
         pat.push(':');
         pat.push(' ');
         pat.push_str(name);

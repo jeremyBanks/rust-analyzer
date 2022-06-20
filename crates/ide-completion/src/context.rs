@@ -85,7 +85,7 @@ impl PathCompletionCtx {
 }
 
 /// The kind of path we are completing right now.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(super) enum PathKind {
     Expr {
         in_block_expr: bool,
@@ -93,8 +93,12 @@ pub(super) enum PathKind {
         after_if_expr: bool,
         /// Whether this expression is the direct condition of an if or while expression
         in_condition: bool,
+        incomplete_let: bool,
         ref_expr_parent: Option<ast::RefExpr>,
         is_func_update: Option<ast::RecordExpr>,
+        self_param: Option<hir::SelfParam>,
+        innermost_ret_ty: Option<hir::Type>,
+        impl_: Option<ast::Impl>,
     },
     Type {
         location: TypeLocation,
@@ -110,7 +114,9 @@ pub(super) enum PathKind {
     Item {
         kind: ItemListKind,
     },
-    Pat,
+    Pat {
+        pat_ctx: PatternContext,
+    },
     Vis {
         has_in_token: bool,
     },
@@ -138,12 +144,12 @@ pub(crate) enum TypeAscriptionTarget {
 }
 
 /// The kind of item list a [`PathKind::Item`] belongs to.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(super) enum ItemListKind {
     SourceFile,
     Module,
     Impl,
-    TraitImpl,
+    TraitImpl(Option<ast::Impl>),
     Trait,
     ExternBlock,
 }
@@ -164,7 +170,7 @@ pub(super) enum Qualified {
 }
 
 /// The state of the pattern we are completing.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct PatternContext {
     pub(super) refutability: PatternRefutability,
     pub(super) param_ctx: Option<(ast::ParamList, ast::Param, ParamKind)>,
@@ -174,6 +180,7 @@ pub(super) struct PatternContext {
     pub(super) mut_token: Option<SyntaxToken>,
     /// The record pattern this name or ref is a field of
     pub(super) record_pat: Option<ast::RecordPat>,
+    pub(super) impl_: Option<ast::Impl>,
 }
 
 /// The state of the lifetime we are completing.
@@ -208,7 +215,7 @@ pub(super) enum NameKind {
     ConstParam,
     Enum,
     Function,
-    IdentPat,
+    IdentPat(PatternContext),
     MacroDef,
     MacroRules,
     /// Fake node
@@ -230,8 +237,7 @@ pub(super) enum NameKind {
 pub(super) struct NameRefContext {
     /// NameRef syntax in the original file
     pub(super) nameref: Option<ast::NameRef>,
-    // FIXME: This shouldn't be an Option
-    pub(super) kind: Option<NameRefKind>,
+    pub(super) kind: NameRefKind,
 }
 
 /// The kind of the NameRef we are completing.
@@ -243,6 +249,7 @@ pub(super) enum NameRefKind {
     Keyword(ast::Item),
     /// The record expression this nameref is a field of
     RecordExpr(ast::RecordExpr),
+    Pattern(PatternContext),
 }
 
 /// The identifier we are currently completing.
@@ -315,22 +322,11 @@ pub(crate) struct CompletionContext<'a> {
     /// The expected type of what we are completing.
     pub(super) expected_type: Option<Type>,
 
-    /// The parent function of the cursor position if it exists.
-    // FIXME: This probably doesn't belong here
-    pub(super) function_def: Option<ast::Fn>,
-    /// The parent impl of the cursor position if it exists.
-    // FIXME: This probably doesn't belong here
-    pub(super) impl_def: Option<ast::Impl>,
-    /// Are we completing inside a let statement with a missing semicolon?
-    // FIXME: This should be part of PathKind::Expr
-    pub(super) incomplete_let: bool,
-
     // FIXME: This shouldn't exist
     pub(super) previous_token: Option<SyntaxToken>,
 
+    // We might wanna split these out of CompletionContext
     pub(super) ident_ctx: IdentContext,
-
-    pub(super) pattern_ctx: Option<PatternContext>,
     pub(super) qualifier_ctx: QualifierCtx,
 
     pub(super) locals: FxHashMap<Name, Local>,
@@ -360,55 +356,6 @@ impl<'a> CompletionContext<'a> {
 
     pub(crate) fn famous_defs(&self) -> FamousDefs {
         FamousDefs(&self.sema, self.krate)
-    }
-
-    pub(super) fn nameref_ctx(&self) -> Option<&NameRefContext> {
-        match &self.ident_ctx {
-            IdentContext::NameRef(it) => Some(it),
-            _ => None,
-        }
-    }
-
-    pub(super) fn name_ctx(&self) -> Option<&NameContext> {
-        match &self.ident_ctx {
-            IdentContext::Name(it) => Some(it),
-            _ => None,
-        }
-    }
-
-    pub(super) fn lifetime_ctx(&self) -> Option<&LifetimeContext> {
-        match &self.ident_ctx {
-            IdentContext::Lifetime(it) => Some(it),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn dot_receiver(&self) -> Option<&ast::Expr> {
-        match self.nameref_ctx() {
-            Some(NameRefContext {
-                kind: Some(NameRefKind::DotAccess(DotAccess { receiver, .. })),
-                ..
-            }) => receiver.as_ref(),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn has_dot_receiver(&self) -> bool {
-        self.dot_receiver().is_some()
-    }
-
-    pub(crate) fn path_context(&self) -> Option<&PathCompletionCtx> {
-        self.nameref_ctx().and_then(|ctx| match &ctx.kind {
-            Some(NameRefKind::Path(path)) => Some(path),
-            _ => None,
-        })
-    }
-
-    pub(crate) fn path_qual(&self) -> Option<&ast::Path> {
-        self.path_context().and_then(|it| match &it.qualified {
-            Qualified::With { path, .. } => Some(path),
-            _ => None,
-        })
     }
 
     /// Checks if an item is visible and not `doc(hidden)` at the completion site.
@@ -548,13 +495,9 @@ impl<'a> CompletionContext<'a> {
             module,
             expected_name: None,
             expected_type: None,
-            function_def: None,
-            impl_def: None,
-            incomplete_let: false,
             previous_token: None,
             // dummy value, will be overwritten
             ident_ctx: IdentContext::UnexpandedAttrTT { fake_attribute_under_caret: None },
-            pattern_ctx: None,
             qualifier_ctx: Default::default(),
             locals,
         };
