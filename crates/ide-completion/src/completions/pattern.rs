@@ -5,7 +5,7 @@ use ide_db::FxHashSet;
 use syntax::ast::Pat;
 
 use crate::{
-    context::{PathCompletionCtx, PathKind, PatternContext, PatternRefutability, Qualified},
+    context::{PathCompletionCtx, PatternContext, PatternRefutability, Qualified},
     CompletionContext, Completions,
 };
 
@@ -13,9 +13,9 @@ use crate::{
 pub(crate) fn complete_pattern(
     acc: &mut Completions,
     ctx: &CompletionContext,
-    patctx: &PatternContext,
+    pattern_ctx: &PatternContext,
 ) {
-    match patctx.parent_pat.as_ref() {
+    match pattern_ctx.parent_pat.as_ref() {
         Some(Pat::RangePat(_) | Pat::BoxPat(_)) => (),
         Some(Pat::RefPat(r)) => {
             if r.mut_token().is_none() {
@@ -24,7 +24,7 @@ pub(crate) fn complete_pattern(
         }
         _ => {
             let tok = ctx.token.text_range().start();
-            match (patctx.ref_token.as_ref(), patctx.mut_token.as_ref()) {
+            match (pattern_ctx.ref_token.as_ref(), pattern_ctx.mut_token.as_ref()) {
                 (None, None) => {
                     acc.add_keyword(ctx, "ref");
                     acc.add_keyword(ctx, "mut");
@@ -40,11 +40,11 @@ pub(crate) fn complete_pattern(
         }
     }
 
-    if patctx.record_pat.is_some() {
+    if pattern_ctx.record_pat.is_some() {
         return;
     }
 
-    let refutable = patctx.refutability == PatternRefutability::Refutable;
+    let refutable = pattern_ctx.refutability == PatternRefutability::Refutable;
     let single_variant_enum = |enum_: hir::Enum| ctx.db.enum_data(enum_.into()).variants.len() == 1;
 
     if let Some(hir::Adt::Enum(e)) =
@@ -55,9 +55,9 @@ pub(crate) fn complete_pattern(
                 acc,
                 ctx,
                 e,
-                &patctx.impl_,
+                &pattern_ctx.impl_,
                 |acc, ctx, variant, path| {
-                    acc.add_qualified_variant_pat(ctx, variant, path);
+                    acc.add_qualified_variant_pat(ctx, pattern_ctx, variant, path);
                 },
             );
         }
@@ -69,26 +69,26 @@ pub(crate) fn complete_pattern(
         let add_simple_path = match res {
             hir::ScopeDef::ModuleDef(def) => match def {
                 hir::ModuleDef::Adt(hir::Adt::Struct(strukt)) => {
-                    acc.add_struct_pat(ctx, strukt, Some(name.clone()));
+                    acc.add_struct_pat(ctx, pattern_ctx, strukt, Some(name.clone()));
                     true
                 }
                 hir::ModuleDef::Variant(variant)
                     if refutable || single_variant_enum(variant.parent_enum(ctx.db)) =>
                 {
-                    acc.add_variant_pat(ctx, variant, Some(name.clone()));
+                    acc.add_variant_pat(ctx, pattern_ctx, variant, Some(name.clone()));
                     true
                 }
                 hir::ModuleDef::Adt(hir::Adt::Enum(e)) => refutable || single_variant_enum(e),
                 hir::ModuleDef::Const(..) => refutable,
                 hir::ModuleDef::Module(..) => true,
                 hir::ModuleDef::Macro(mac) if mac.is_fn_like(ctx.db) => {
-                    return acc.add_macro(ctx, mac, name)
+                    return acc.add_macro_pat(ctx, pattern_ctx, mac, name);
                 }
                 _ => false,
             },
             hir::ScopeDef::ImplSelfType(impl_) => match impl_.self_ty(ctx.db).as_adt() {
                 Some(hir::Adt::Struct(strukt)) => {
-                    acc.add_struct_pat(ctx, strukt, Some(name.clone()));
+                    acc.add_struct_pat(ctx, pattern_ctx, strukt, Some(name.clone()));
                     true
                 }
                 Some(hir::Adt::Enum(e)) => refutable || single_variant_enum(e),
@@ -103,19 +103,16 @@ pub(crate) fn complete_pattern(
             | ScopeDef::Unknown => false,
         };
         if add_simple_path {
-            acc.add_resolution_simple(ctx, name, res);
+            acc.add_pattern_resolution(ctx, pattern_ctx, name, res);
         }
     });
 }
 
-pub(crate) fn pattern_path_completion(
+pub(crate) fn complete_pattern_path(
     acc: &mut Completions,
     ctx: &CompletionContext,
-    PathCompletionCtx { qualified, kind, .. }: &PathCompletionCtx,
+    path_ctx @ PathCompletionCtx { qualified, .. }: &PathCompletionCtx,
 ) {
-    if !matches!(kind, PathKind::Pat { .. }) {
-        return;
-    }
     match qualified {
         Qualified::With { resolution: Some(resolution), is_super_chain, .. } => {
             if *is_super_chain {
@@ -135,7 +132,7 @@ pub(crate) fn pattern_path_completion(
                         };
 
                         if add_resolution {
-                            acc.add_resolution(ctx, name, def);
+                            acc.add_path_resolution(ctx, path_ctx, name, def);
                         }
                     }
                 }
@@ -153,9 +150,9 @@ pub(crate) fn pattern_path_completion(
                         }
                         hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Enum(e))) => {
                             cov_mark::hit!(enum_plain_qualified_use_tree);
-                            e.variants(ctx.db)
-                                .into_iter()
-                                .for_each(|variant| acc.add_enum_variant(ctx, variant, None));
+                            e.variants(ctx.db).into_iter().for_each(|variant| {
+                                acc.add_enum_variant(ctx, path_ctx, variant, None)
+                            });
                             e.ty(ctx.db)
                         }
                         hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Union(u))) => {
@@ -195,12 +192,12 @@ pub(crate) fn pattern_path_completion(
             }
         }
         // qualifier can only be none here if we are in a TuplePat or RecordPat in which case special characters have to follow the path
-        Qualified::Absolute => acc.add_crate_roots(ctx),
+        Qualified::Absolute => acc.add_crate_roots(ctx, path_ctx),
         Qualified::No => {
             ctx.process_all_names(&mut |name, res| {
                 // FIXME: properly filter here
                 if let ScopeDef::ModuleDef(_) = res {
-                    acc.add_resolution(ctx, name, res);
+                    acc.add_path_resolution(ctx, path_ctx, name, res);
                 }
             });
 

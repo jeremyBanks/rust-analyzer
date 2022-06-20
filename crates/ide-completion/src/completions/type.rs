@@ -5,7 +5,7 @@ use ide_db::FxHashSet;
 use syntax::{ast, AstNode};
 
 use crate::{
-    context::{PathCompletionCtx, PathKind, Qualified, TypeAscriptionTarget, TypeLocation},
+    context::{PathCompletionCtx, Qualified, TypeAscriptionTarget, TypeLocation},
     render::render_type_inference,
     CompletionContext, Completions,
 };
@@ -13,16 +13,10 @@ use crate::{
 pub(crate) fn complete_type_path(
     acc: &mut Completions,
     ctx: &CompletionContext,
-    path_ctx: &PathCompletionCtx,
+    path_ctx @ PathCompletionCtx { qualified, .. }: &PathCompletionCtx,
+    location: &TypeLocation,
 ) {
     let _p = profile::span("complete_type_path");
-
-    let (location, qualified) = match path_ctx {
-        PathCompletionCtx { kind: PathKind::Type { location }, qualified, .. } => {
-            (location, qualified)
-        }
-        _ => return,
-    };
 
     let scope_def_applicable = |def| {
         use hir::{GenericParam::*, ModuleDef::*};
@@ -75,7 +69,7 @@ pub(crate) fn complete_type_path(
                     let module_scope = module.scope(ctx.db, Some(ctx.module));
                     for (name, def) in module_scope {
                         if scope_def_applicable(def) {
-                            acc.add_resolution(ctx, name, def);
+                            acc.add_path_resolution(ctx, path_ctx, name, def);
                         }
                     }
                 }
@@ -147,7 +141,7 @@ pub(crate) fn complete_type_path(
                 _ => (),
             }
         }
-        Qualified::Absolute => acc.add_crate_roots(ctx),
+        Qualified::Absolute => acc.add_crate_roots(ctx, path_ctx),
         Qualified::No => {
             acc.add_nameref_keywords_with_colon(ctx);
             if let TypeLocation::TypeBound = location {
@@ -160,7 +154,7 @@ pub(crate) fn complete_type_path(
                         _ => false,
                     };
                     if add_resolution {
-                        acc.add_resolution(ctx, name, res);
+                        acc.add_path_resolution(ctx, path_ctx, name, res);
                     }
                 });
                 return;
@@ -184,26 +178,23 @@ pub(crate) fn complete_type_path(
             }
             ctx.process_all_names(&mut |name, def| {
                 if scope_def_applicable(def) {
-                    acc.add_resolution(ctx, name, def);
+                    acc.add_path_resolution(ctx, path_ctx, name, def);
                 }
             });
         }
     }
 }
 
-pub(crate) fn complete_inferred_type(
+pub(crate) fn complete_ascribed_type(
     acc: &mut Completions,
     ctx: &CompletionContext,
     path_ctx: &PathCompletionCtx,
+    ascription: &TypeAscriptionTarget,
 ) -> Option<()> {
-    let pat = match path_ctx {
-        PathCompletionCtx {
-            kind: PathKind::Type { location: TypeLocation::TypeAscription(ascription), .. },
-            ..
-        } if path_ctx.is_trivial_path() => ascription,
-        _ => return None,
-    };
-    let x = match pat {
+    if !path_ctx.is_trivial_path() {
+        return None;
+    }
+    let x = match ascription {
         TypeAscriptionTarget::Let(pat) | TypeAscriptionTarget::FnParam(pat) => {
             ctx.sema.type_of_pat(pat.as_ref()?)
         }

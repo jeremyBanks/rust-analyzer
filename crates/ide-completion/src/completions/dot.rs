@@ -3,9 +3,7 @@
 use ide_db::FxHashSet;
 
 use crate::{
-    context::{
-        CompletionContext, DotAccess, DotAccessKind, PathCompletionCtx, PathKind, Qualified,
-    },
+    context::{CompletionContext, DotAccess, DotAccessKind, ExprCtx, PathCompletionCtx, Qualified},
     CompletionItem, CompletionItemKind, Completions,
 };
 
@@ -31,27 +29,33 @@ pub(crate) fn complete_dot(acc: &mut Completions, ctx: &CompletionContext, dot_a
             acc,
             ctx,
             &receiver_ty,
-            |acc, field, ty| acc.add_field(ctx, None, field, &ty),
+            |acc, field, ty| acc.add_field(ctx, dot_access, None, field, &ty),
             |acc, field, ty| acc.add_tuple_field(ctx, None, field, &ty),
         );
     }
-    complete_methods(ctx, &receiver_ty, |func| acc.add_method(ctx, func, None, None));
+    complete_methods(ctx, &receiver_ty, |func| acc.add_method(ctx, dot_access, func, None, None));
 }
 
 pub(crate) fn complete_undotted_self(
     acc: &mut Completions,
     ctx: &CompletionContext,
     path_ctx: &PathCompletionCtx,
+    expr_ctx: &ExprCtx,
 ) {
     if !ctx.config.enable_self_on_the_fly {
         return;
     }
-    let self_param = match path_ctx {
-        PathCompletionCtx {
-            qualified: Qualified::No,
-            kind: PathKind::Expr { self_param: Some(self_param), .. },
-            ..
-        } if path_ctx.is_trivial_path() && ctx.qualifier_ctx.none() => self_param,
+    if !path_ctx.is_trivial_path() {
+        return;
+    }
+    if !ctx.qualifier_ctx.none() {
+        return;
+    }
+    if !matches!(path_ctx.qualified, Qualified::No) {
+        return;
+    }
+    let self_param = match expr_ctx {
+        ExprCtx { self_param: Some(self_param), .. } => self_param,
         _ => return,
     };
 
@@ -60,11 +64,33 @@ pub(crate) fn complete_undotted_self(
         acc,
         ctx,
         &ty,
-        |acc, field, ty| acc.add_field(ctx, Some(hir::known::SELF_PARAM), field, &ty),
+        |acc, field, ty| {
+            acc.add_field(
+                ctx,
+                &DotAccess {
+                    receiver: None,
+                    receiver_ty: None,
+                    kind: DotAccessKind::Field { receiver_is_ambiguous_float_literal: false },
+                },
+                Some(hir::known::SELF_PARAM),
+                field,
+                &ty,
+            )
+        },
         |acc, field, ty| acc.add_tuple_field(ctx, Some(hir::known::SELF_PARAM), field, &ty),
     );
     complete_methods(ctx, &ty, |func| {
-        acc.add_method(ctx, func, Some(hir::known::SELF_PARAM), None)
+        acc.add_method(
+            ctx,
+            &DotAccess {
+                receiver: None,
+                receiver_ty: None,
+                kind: DotAccessKind::Method { has_parens: false },
+            },
+            func,
+            Some(hir::known::SELF_PARAM),
+            None,
+        )
     });
 }
 

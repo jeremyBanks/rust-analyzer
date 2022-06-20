@@ -1,12 +1,9 @@
 //! Complete fields in record literals and patterns.
 use ide_db::SymbolKind;
-use syntax::{
-    ast::{self, Expr},
-    T,
-};
+use syntax::ast::{self, Expr};
 
 use crate::{
-    context::{PathCompletionCtx, PathKind, PatternContext, Qualified},
+    context::{DotAccess, DotAccessKind, ExprCtx, PathCompletionCtx, PatternContext, Qualified},
     CompletionContext, CompletionItem, CompletionItemKind, CompletionRelevance,
     CompletionRelevancePostfixMatch, Completions,
 };
@@ -20,10 +17,11 @@ pub(crate) fn complete_record_pattern_fields(
         complete_fields(acc, ctx, ctx.sema.record_pattern_missing_fields(record_pat));
     }
 }
-pub(crate) fn complete_record_expr_fields_record_expr(
+pub(crate) fn complete_record_expr_fields(
     acc: &mut Completions,
     ctx: &CompletionContext,
     record_expr: &ast::RecordExpr,
+    &dot_prefix: &bool,
 ) {
     let ty = ctx.sema.type_of_expr(&Expr::RecordExpr(record_expr.clone()));
 
@@ -45,7 +43,7 @@ pub(crate) fn complete_record_expr_fields_record_expr(
             let missing_fields = ctx.sema.record_literal_missing_fields(record_expr);
 
             add_default_update(acc, ctx, ty, &missing_fields);
-            if ctx.previous_token_is(T![.]) {
+            if dot_prefix {
                 let mut item =
                     CompletionItem::new(CompletionItemKind::Snippet, ctx.source_range(), "..");
                 item.insert_text(".");
@@ -85,13 +83,12 @@ pub(crate) fn complete_record_expr_func_update(
     acc: &mut Completions,
     ctx: &CompletionContext,
     path_ctx: &PathCompletionCtx,
+    expr_ctx: &ExprCtx,
 ) {
-    if let PathCompletionCtx {
-        kind: PathKind::Expr { is_func_update: Some(record_expr), .. },
-        qualified: Qualified::No,
-        ..
-    } = path_ctx
-    {
+    if !matches!(path_ctx.qualified, Qualified::No) {
+        return;
+    }
+    if let ExprCtx { is_func_update: Some(record_expr), .. } = expr_ctx {
         let ty = ctx.sema.type_of_expr(&Expr::RecordExpr(record_expr.clone()));
 
         match ty.as_ref().and_then(|t| t.original.as_adt()) {
@@ -110,7 +107,17 @@ fn complete_fields(
     missing_fields: Vec<(hir::Field, hir::Type)>,
 ) {
     for (field, ty) in missing_fields {
-        acc.add_field(ctx, None, field, &ty);
+        acc.add_field(
+            ctx,
+            &DotAccess {
+                receiver: None,
+                receiver_ty: None,
+                kind: DotAccessKind::Field { receiver_is_ambiguous_float_literal: false },
+            },
+            None,
+            field,
+            &ty,
+        );
     }
 }
 

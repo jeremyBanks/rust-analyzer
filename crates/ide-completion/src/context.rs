@@ -61,6 +61,8 @@ pub(crate) struct PathCompletionCtx {
     pub(super) qualified: Qualified,
     /// The parent of the path we are completing.
     pub(super) parent: Option<ast::Path>,
+    /// The path of which we are completing the segment
+    pub(super) path: ast::Path,
     pub(super) kind: PathKind,
     /// Whether the path segment has type args or not.
     pub(super) has_type_args: bool,
@@ -88,27 +90,16 @@ impl PathCompletionCtx {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PathKind {
     Expr {
-        in_block_expr: bool,
-        in_loop_body: bool,
-        after_if_expr: bool,
-        /// Whether this expression is the direct condition of an if or while expression
-        in_condition: bool,
-        incomplete_let: bool,
-        ref_expr_parent: Option<ast::RefExpr>,
-        is_func_update: Option<ast::RecordExpr>,
-        self_param: Option<hir::SelfParam>,
-        innermost_ret_ty: Option<hir::Type>,
-        impl_: Option<ast::Impl>,
+        expr_ctx: ExprCtx,
     },
     Type {
         location: TypeLocation,
     },
     Attr {
-        kind: AttrKind,
-        annotated_item_kind: Option<SyntaxKind>,
+        attr_ctx: AttrCtx,
     },
     Derive {
-        existing_derives: FxHashSet<hir::Macro>,
+        existing_derives: ExistingDerives,
     },
     /// Path in item position, that is inside an (Assoc)ItemList
     Item {
@@ -121,6 +112,29 @@ pub(super) enum PathKind {
         has_in_token: bool,
     },
     Use,
+}
+
+pub(crate) type ExistingDerives = FxHashSet<hir::Macro>;
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AttrCtx {
+    pub(crate) kind: AttrKind,
+    pub(crate) annotated_item_kind: Option<SyntaxKind>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ExprCtx {
+    pub(crate) in_block_expr: bool,
+    pub(crate) in_loop_body: bool,
+    pub(crate) after_if_expr: bool,
+    /// Whether this expression is the direct condition of an if or while expression
+    pub(crate) in_condition: bool,
+    pub(crate) incomplete_let: bool,
+    pub(crate) ref_expr_parent: Option<ast::RefExpr>,
+    pub(crate) is_func_update: Option<ast::RecordExpr>,
+    pub(crate) self_param: Option<hir::SelfParam>,
+    pub(crate) innermost_ret_ty: Option<hir::Type>,
+    pub(crate) impl_: Option<ast::Impl>,
 }
 
 /// Original file ast nodes
@@ -247,14 +261,17 @@ pub(super) enum NameRefKind {
     DotAccess(DotAccess),
     /// Position where we are only interested in keyword completions
     Keyword(ast::Item),
-    /// The record expression this nameref is a field of
-    RecordExpr(ast::RecordExpr),
+    /// The record expression this nameref is a field of and whether a dot precedes the completion identifier.
+    RecordExpr {
+        dot_prefix: bool,
+        expr: ast::RecordExpr,
+    },
     Pattern(PatternContext),
 }
 
 /// The identifier we are currently completing.
 #[derive(Debug)]
-pub(super) enum IdentContext {
+pub(super) enum CompletionAnalysis {
     Name(NameContext),
     NameRef(NameRefContext),
     Lifetime(LifetimeContext),
@@ -267,6 +284,7 @@ pub(super) enum IdentContext {
     },
     /// Set if we are currently completing in an unexpanded attribute, this usually implies a builtin attribute like `allow($0)`
     UnexpandedAttrTT {
+        colon_prefix: bool,
         fake_attribute_under_caret: Option<ast::Attr>,
     },
 }
@@ -322,11 +340,6 @@ pub(crate) struct CompletionContext<'a> {
     /// The expected type of what we are completing.
     pub(super) expected_type: Option<Type>,
 
-    // FIXME: This shouldn't exist
-    pub(super) previous_token: Option<SyntaxToken>,
-
-    // We might wanna split these out of CompletionContext
-    pub(super) ident_ctx: IdentContext,
     pub(super) qualifier_ctx: QualifierCtx,
 
     pub(super) locals: FxHashMap<Name, Local>,
@@ -347,11 +360,6 @@ impl<'a> CompletionContext<'a> {
             _ if kind.is_keyword() => self.original_token.text_range(),
             _ => TextRange::empty(self.position.offset),
         }
-    }
-
-    // FIXME: This shouldn't exist
-    pub(crate) fn previous_token_is(&self, kind: SyntaxKind) -> bool {
-        self.previous_token.as_ref().map_or(false, |tok| tok.kind() == kind)
     }
 
     pub(crate) fn famous_defs(&self) -> FamousDefs {
@@ -453,7 +461,7 @@ impl<'a> CompletionContext<'a> {
         db: &'a RootDatabase,
         position @ FilePosition { file_id, offset }: FilePosition,
         config: &'a CompletionConfig,
-    ) -> Option<CompletionContext<'a>> {
+    ) -> Option<(CompletionContext<'a>, CompletionAnalysis)> {
         let _p = profile::span("CompletionContext::new");
         let sema = Semantics::new(db);
 
@@ -495,19 +503,16 @@ impl<'a> CompletionContext<'a> {
             module,
             expected_name: None,
             expected_type: None,
-            previous_token: None,
-            // dummy value, will be overwritten
-            ident_ctx: IdentContext::UnexpandedAttrTT { fake_attribute_under_caret: None },
             qualifier_ctx: Default::default(),
             locals,
         };
-        ctx.expand_and_fill(
+        let ident_ctx = ctx.expand_and_analyze(
             original_file.syntax().clone(),
             file_with_fake_ident.syntax().clone(),
             offset,
             fake_ident_token,
         )?;
-        Some(ctx)
+        Some((ctx, ident_ctx))
     }
 }
 

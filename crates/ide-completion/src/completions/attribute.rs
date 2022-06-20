@@ -17,8 +17,7 @@ use syntax::{
 };
 
 use crate::{
-    completions::module_or_attr,
-    context::{CompletionContext, PathCompletionCtx, PathKind, Qualified},
+    context::{AttrCtx, CompletionContext, PathCompletionCtx, Qualified},
     item::CompletionItem,
     Completions,
 };
@@ -28,12 +27,13 @@ mod derive;
 mod lint;
 mod repr;
 
-pub(crate) use self::derive::complete_derive;
+pub(crate) use self::derive::complete_derive_path;
 
 /// Complete inputs to known builtin attributes as well as derive attributes
 pub(crate) fn complete_known_attribute_input(
     acc: &mut Completions,
     ctx: &CompletionContext,
+    &colon_prefix: &bool,
     fake_attribute_under_caret: &ast::Attr,
 ) -> Option<()> {
     let attribute = fake_attribute_under_caret;
@@ -48,7 +48,9 @@ pub(crate) fn complete_known_attribute_input(
 
     match path.text().as_str() {
         "repr" => repr::complete_repr(acc, ctx, tt),
-        "feature" => lint::complete_lint(acc, ctx, &parse_tt_as_comma_sep_paths(tt)?, FEATURES),
+        "feature" => {
+            lint::complete_lint(acc, ctx, colon_prefix, &parse_tt_as_comma_sep_paths(tt)?, FEATURES)
+        }
         "allow" | "warn" | "deny" | "forbid" => {
             let existing_lints = parse_tt_as_comma_sep_paths(tt)?;
 
@@ -61,7 +63,7 @@ pub(crate) fn complete_known_attribute_input(
                 .cloned()
                 .collect();
 
-            lint::complete_lint(acc, ctx, &existing_lints, &lints);
+            lint::complete_lint(acc, ctx, colon_prefix, &existing_lints, &lints);
         }
         "cfg" => cfg::complete_cfg(acc, ctx),
         _ => (),
@@ -69,19 +71,13 @@ pub(crate) fn complete_known_attribute_input(
     Some(())
 }
 
-pub(crate) fn complete_attribute(
+pub(crate) fn complete_attribute_path(
     acc: &mut Completions,
     ctx: &CompletionContext,
-    path_ctx: &PathCompletionCtx,
+    path_ctx @ PathCompletionCtx { qualified, .. }: &PathCompletionCtx,
+    &AttrCtx { kind, annotated_item_kind }: &AttrCtx,
 ) {
-    let (qualified, is_inner, annotated_item_kind) = match path_ctx {
-        &PathCompletionCtx {
-            kind: PathKind::Attr { kind, annotated_item_kind },
-            ref qualified,
-            ..
-        } => (qualified, kind == AttrKind::Inner, annotated_item_kind),
-        _ => return,
-    };
+    let is_inner = kind == AttrKind::Inner;
 
     match qualified {
         Qualified::With {
@@ -94,20 +90,30 @@ pub(crate) fn complete_attribute(
             }
 
             for (name, def) in module.scope(ctx.db, Some(ctx.module)) {
-                if let Some(def) = module_or_attr(ctx.db, def) {
-                    acc.add_resolution(ctx, name, def);
+                match def {
+                    hir::ScopeDef::ModuleDef(hir::ModuleDef::Macro(m)) if m.is_attr(ctx.db) => {
+                        acc.add_macro(ctx, path_ctx, m, name)
+                    }
+                    hir::ScopeDef::ModuleDef(hir::ModuleDef::Module(m)) => {
+                        acc.add_module(ctx, path_ctx, m, name)
+                    }
+                    _ => (),
                 }
             }
             return;
         }
         // fresh use tree with leading colon2, only show crate roots
-        Qualified::Absolute => acc.add_crate_roots(ctx),
+        Qualified::Absolute => acc.add_crate_roots(ctx, path_ctx),
         // only show modules in a fresh UseTree
         Qualified::No => {
-            ctx.process_all_names(&mut |name, def| {
-                if let Some(def) = module_or_attr(ctx.db, def) {
-                    acc.add_resolution(ctx, name, def);
+            ctx.process_all_names(&mut |name, def| match def {
+                hir::ScopeDef::ModuleDef(hir::ModuleDef::Macro(m)) if m.is_attr(ctx.db) => {
+                    acc.add_macro(ctx, path_ctx, m, name)
                 }
+                hir::ScopeDef::ModuleDef(hir::ModuleDef::Module(m)) => {
+                    acc.add_module(ctx, path_ctx, m, name)
+                }
+                _ => (),
             });
             acc.add_nameref_keywords_with_colon(ctx);
         }

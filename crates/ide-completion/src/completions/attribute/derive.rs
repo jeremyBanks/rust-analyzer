@@ -5,23 +5,17 @@ use itertools::Itertools;
 use syntax::SmolStr;
 
 use crate::{
-    context::{CompletionContext, PathCompletionCtx, PathKind, Qualified},
+    context::{CompletionContext, ExistingDerives, PathCompletionCtx, Qualified},
     item::CompletionItem,
     Completions,
 };
 
-pub(crate) fn complete_derive(
+pub(crate) fn complete_derive_path(
     acc: &mut Completions,
     ctx: &CompletionContext,
-    path_ctx: &PathCompletionCtx,
+    path_ctx @ PathCompletionCtx { qualified, .. }: &PathCompletionCtx,
+    existing_derives: &ExistingDerives,
 ) {
-    let (qualified, existing_derives) = match path_ctx {
-        PathCompletionCtx { kind: PathKind::Derive { existing_derives }, qualified, .. } => {
-            (qualified, existing_derives)
-        }
-        _ => return,
-    };
-
     let core = ctx.famous_defs().core();
 
     match qualified {
@@ -35,19 +29,20 @@ pub(crate) fn complete_derive(
             }
 
             for (name, def) in module.scope(ctx.db, Some(ctx.module)) {
-                let add_def = match def {
-                    ScopeDef::ModuleDef(hir::ModuleDef::Macro(mac)) => {
-                        !existing_derives.contains(&mac) && mac.is_derive(ctx.db)
+                match def {
+                    ScopeDef::ModuleDef(hir::ModuleDef::Macro(mac))
+                        if !existing_derives.contains(&mac) && mac.is_derive(ctx.db) =>
+                    {
+                        acc.add_macro(ctx, path_ctx, mac, name)
                     }
-                    ScopeDef::ModuleDef(hir::ModuleDef::Module(_)) => true,
-                    _ => false,
-                };
-                if add_def {
-                    acc.add_resolution(ctx, name, def);
+                    ScopeDef::ModuleDef(hir::ModuleDef::Module(m)) => {
+                        acc.add_module(ctx, path_ctx, m, name)
+                    }
+                    _ => (),
                 }
             }
         }
-        Qualified::Absolute => acc.add_crate_roots(ctx),
+        Qualified::Absolute => acc.add_crate_roots(ctx, path_ctx),
         // only show modules in a fresh UseTree
         Qualified::No => {
             ctx.process_all_names(&mut |name, def| {
@@ -57,8 +52,8 @@ pub(crate) fn complete_derive(
                     {
                         mac
                     }
-                    ScopeDef::ModuleDef(hir::ModuleDef::Module(_)) => {
-                        return acc.add_resolution(ctx, name, def);
+                    ScopeDef::ModuleDef(hir::ModuleDef::Module(m)) => {
+                        return acc.add_module(ctx, path_ctx, m, name);
                     }
                     _ => return,
                 };
@@ -66,7 +61,7 @@ pub(crate) fn complete_derive(
                 match (core, mac.module(ctx.db).krate()) {
                     // show derive dependencies for `core`/`std` derives
                     (Some(core), mac_krate) if core == mac_krate => {}
-                    _ => return acc.add_resolution(ctx, name, def),
+                    _ => return acc.add_macro(ctx, path_ctx, mac, name),
                 };
 
                 let name_ = name.to_smol_str();
@@ -99,7 +94,7 @@ pub(crate) fn complete_derive(
                         item.lookup_by(lookup);
                         item.add_to(acc);
                     }
-                    None => acc.add_resolution(ctx, name, def),
+                    None => acc.add_macro(ctx, path_ctx, mac, name),
                 }
             });
             acc.add_nameref_keywords_with_colon(ctx);
