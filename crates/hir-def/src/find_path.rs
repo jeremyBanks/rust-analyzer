@@ -434,15 +434,15 @@ mod tests {
         ra_fixture: &str,
         unprefixed: &str,
         prefixed: &str,
-        krate: &str,
+        crate_prefixed: &str,
         self_prefixed: &str,
-        absolute: &str,
+        absolute_prefixed: &str,
     ) {
         check_found_path_(ra_fixture, unprefixed, None);
         check_found_path_(ra_fixture, prefixed, Some(PrefixKind::Plain));
-        check_found_path_(ra_fixture, krate, Some(PrefixKind::ByCrate));
+        check_found_path_(ra_fixture, crate_prefixed, Some(PrefixKind::ByCrate));
         check_found_path_(ra_fixture, self_prefixed, Some(PrefixKind::BySelf));
-        check_found_path_(ra_fixture, absolute, Some(PrefixKind::Absolute));
+        check_found_path_(ra_fixture, absolute_prefixed, Some(PrefixKind::Absolute));
     }
 
     #[test]

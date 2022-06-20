@@ -8,7 +8,7 @@ use ide_db::{
         insert_use::{insert_use, ImportScope},
     },
 };
-use syntax::{ast, AstNode, AstToken, NodeOrToken, SyntaxElement};
+use syntax::{ast, ted::Position, AstNode, NodeOrToken, SyntaxElement, T};
 
 use crate::{AssistContext, AssistId, AssistKind, Assists, GroupLabel};
 
@@ -92,14 +92,6 @@ pub(crate) fn auto_import(acc: &mut Assists, ctx: &AssistContext) -> Option<()> 
     let mut proposed_imports =
         import_assets.search_for_imports(&ctx.sema, ctx.config.insert_use.prefix_kind);
 
-    if ctx.config.insert_use.prefix_kind == PrefixKind::Absolute {
-        for proposed_import in proposed_imports.iter_mut() {
-            if proposed_import.import_path.kind == ImportPathKind::Absolute {
-                proposed_import.import_path.path.segments.insert(0, "".into());
-            }
-        }
-    }
-
     if proposed_imports.is_empty() {
         return None;
     }
@@ -144,11 +136,15 @@ pub(crate) fn auto_import(acc: &mut Assists, ctx: &AssistContext) -> Option<()> 
                     ImportScope::Module(it) => ImportScope::Module(builder.make_mut(it)),
                     ImportScope::Block(it) => ImportScope::Block(builder.make_mut(it)),
                 };
-                let mut ast = mod_path_to_ast(&import.import_path);
-                // TODO: we want to add a coloncolon token before ast.syntax()
-
-                syntax::ted::insert(Position::before(ast), T![::]);
-
+                let ast = mod_path_to_ast(&import.import_path);
+                // Add `::` prefix to for absolute imports
+                if import.import_path.kind == hir::PathKind::Abs
+                    && ctx.config.insert_use.prefix_kind == hir::PrefixKind::Absolute
+                {
+                    let before_path = Position::before(ast.syntax());
+                    let cc = ast::make::token(T![::]);
+                    syntax::ted::insert(before_path, cc);
+                }
                 insert_use(&scope, ast, &ctx.config.insert_use);
             },
         );
