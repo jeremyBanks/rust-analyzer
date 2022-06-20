@@ -91,6 +91,11 @@ impl PrefixKind {
             PrefixKind::Absolute => PathKind::Abs,
         }
     }
+
+    #[inline]
+    fn is_absolute(&self) -> bool {
+        matches!(self, PrefixKind::ByCrate | PrefixKind::Absolute)
+    }
 }
 /// Attempts to find a path to refer to the given `item` visible from the `from` ModuleId
 fn find_path_inner(
@@ -142,7 +147,7 @@ fn find_path_inner_(
         return Some(ModPath::from_segments(PathKind::Crate, None));
     }
 
-    if matches!(prefixed, Some(PrefixKind::BySelf | PrefixKind::Plain)) {
+    if prefixed.filter(PrefixKind::is_absolute).is_none() {
         if let modpath @ Some(_) = check_self_super(&def_map, item, from) {
             return modpath;
         }
