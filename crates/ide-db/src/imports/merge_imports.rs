@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use itertools::{EitherOrBoth, Itertools};
 use syntax::{
     ast::{self, AstNode, HasAttrs, HasVisibility, PathSegmentKind},
-    ted::{self, Position},
+    ted,
 };
 
 use crate::syntax_helpers::node_ext::vis_eq;
@@ -73,7 +73,7 @@ fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehav
     let lhs_path = lhs.path()?;
     let rhs_path = rhs.path()?;
 
-    let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path, merge)?;
+    let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
     if !(lhs.is_simple_path()
         && rhs.is_simple_path()
         && lhs_path == lhs_prefix
@@ -110,7 +110,7 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
                 let lhs_t = &mut use_trees[idx];
                 let lhs_path = lhs_t.path()?;
                 let rhs_path = rhs_path?;
-                let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path, merge)?;
+                let (lhs_prefix, rhs_prefix) = common_prefix(&lhs_path, &rhs_path)?;
                 if lhs_prefix == lhs_path && rhs_prefix == rhs_path {
                     let tree_is_self = |tree: &ast::UseTree| {
                         tree.path().as_ref().map(path_is_self).unwrap_or(false)
@@ -161,38 +161,8 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
 }
 
 /// Traverses both paths until they differ, returning the common prefix of both.
-pub fn common_prefix(
-    lhs: &ast::Path,
-    rhs: &ast::Path,
-    merge: MergeBehavior,
-) -> Option<(ast::Path, ast::Path)> {
-    let mut res = if merge == MergeBehavior::One {
-        if lhs.qualifier().is_none()
-            && rhs.qualifier().is_none()
-            && lhs.coloncolon_token().is_some()
-            && rhs.coloncolon_token().is_some()
-        {
-            let lhs_one = lhs.clone_subtree().clone_for_update();
-            let rhs_one = rhs.clone_subtree().clone_for_update();
-
-            ted::remove(lhs_one.segment()?.syntax());
-            ted::remove(rhs_one.segment()?.syntax());
-
-            Some((lhs_one, rhs_one))
-        } else {
-            let lhs_one = lhs.clone_subtree().clone_for_update();
-            let rhs_one = rhs.clone_subtree().clone_for_update();
-
-            ted::remove(lhs_one.segment()?.syntax());
-            ted::remove(rhs_one.segment()?.syntax());
-            ted::remove(lhs_one.coloncolon_token()?);
-            ted::remove(rhs_one.coloncolon_token()?);
-
-            Some((lhs_one, rhs_one))
-        }
-    } else {
-        None
-    };
+pub fn common_prefix(lhs: &ast::Path, rhs: &ast::Path) -> Option<(ast::Path, ast::Path)> {
+    let mut res = None;
     let mut lhs_curr = lhs.first_qualifier_or_self();
     let mut rhs_curr = rhs.first_qualifier_or_self();
     loop {
