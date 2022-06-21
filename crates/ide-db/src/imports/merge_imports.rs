@@ -1,9 +1,10 @@
 //! Handle syntactic aspects of merging UseTrees.
-use std::cmp::Ordering;
+use {std::cmp::Ordering, syntax::ast::make};
 
 use itertools::{EitherOrBoth, Itertools};
+
 use syntax::{
-    ast::{self, AstNode, HasAttrs, HasVisibility, PathSegmentKind},
+    ast::{self, AstNode, HasAttrs, HasVisibility, PathSegmentKind, UseTree},
     ted,
 };
 
@@ -12,6 +13,8 @@ use crate::syntax_helpers::node_ext::vis_eq;
 /// What type of merges are allowed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum MergeBehavior {
+    /// Merge all imports into a single use statement.
+    One,
     /// Merge imports from the same crate into a single use statement.
     Crate,
     /// Merge imports from the same module into a single use statement.
@@ -21,6 +24,7 @@ pub enum MergeBehavior {
 impl MergeBehavior {
     fn is_tree_allowed(&self, tree: &ast::UseTree) -> bool {
         match self {
+            MergeBehavior::One => true,
             MergeBehavior::Crate => true,
             // only simple single segment paths are allowed
             MergeBehavior::Module => {
@@ -32,11 +36,7 @@ impl MergeBehavior {
 
 /// Merge `rhs` into `lhs` keeping both intact.
 /// Returned AST is mutable.
-pub fn try_merge_imports(
-    lhs: &ast::Use,
-    rhs: &ast::Use,
-    merge_behavior: MergeBehavior,
-) -> Option<ast::Use> {
+pub fn try_merge_imports(lhs: &ast::Use, rhs: &ast::Use, merge: MergeBehavior) -> Option<ast::Use> {
     // don't merge imports with different visibilities
     if !eq_visibility(lhs.visibility(), rhs.visibility()) {
         return None;
@@ -47,10 +47,84 @@ pub fn try_merge_imports(
 
     let lhs = lhs.clone_subtree().clone_for_update();
     let rhs = rhs.clone_subtree().clone_for_update();
-    let lhs_tree = lhs.use_tree()?;
-    let rhs_tree = rhs.use_tree()?;
-    try_merge_trees_mut(&lhs_tree, &rhs_tree, merge_behavior)?;
+    let mut lhs_tree = lhs.use_tree()?;
+    let mut rhs_tree = rhs.use_tree()?;
+    let lhs_cc = leading_coloncolon(&lhs_tree);
+    let rhs_cc = leading_coloncolon(&rhs_tree);
+
+    if merge == MergeBehavior::One {
+        if let (Some(lhs_cc), Some(rhs_cc)) = (&lhs_cc, &rhs_cc) {
+            ted::remove(lhs_cc);
+            ted::remove(rhs_cc);
+        }
+
+        // This should never be visible to users, but in case it does show up, give it a unique (searchable) value.
+        let ident = "RA_ONE_IMPORT_GROUP";
+        let qualifier =
+            make::path_from_segments([make::path_segment(make::name_ref(ident))], false);
+
+        // TODO: this is the wrong conmstructor because it requires a tree list, but I may not?
+        lhs_tree = make::use_tree_qualified;
+        lhs_tree = make::use_tree(
+            qualifier.clone_subtree().clone_for_update(),
+            Some(make::use_tree_list([lhs_tree.clone_subtree()])),
+            None,
+            false,
+        )
+        .clone_for_update();
+
+        rhs_tree = make::use_tree(
+            qualifier.clone_subtree().clone_for_update(),
+            Some(make::use_tree_list([rhs_tree.clone_subtree()])),
+            None,
+            false,
+        )
+        .clone_for_update();
+    }
+
+    dbg!(&lhs_tree, &rhs_tree);
+
+    let result = try_merge_trees_mut(&lhs_tree, &rhs_tree, merge);
+
+    result?;
+
+    if merge == MergeBehavior::One {
+        let lhs_qualifier = &lhs_tree.path()?.first_qualifier_or_self();
+
+        ted::remove(lhs_qualifier.syntax());
+
+        if !(lhs_cc.is_some() && rhs_cc.is_some()) {
+            ted::remove(leading_coloncolon(&lhs_tree)?);
+        }
+    }
+
+    ted::replace(lhs.use_tree()?.syntax(), lhs_tree.syntax());
+
     Some(lhs)
+}
+
+fn leading_coloncolon(use_tree: &ast::UseTree) -> Option<syntax::SyntaxToken> {
+    if let Some(mut path) = use_tree.path() {
+        loop {
+            match path.qualifier() {
+                Some(qualifier) => {
+                    path = qualifier;
+                }
+                None => break,
+            }
+        }
+        if let Some(token) = path.coloncolon_token() {
+            return Some(token);
+        } else if let Some(segment) = path.segment() {
+            if let Some(token) = segment.coloncolon_token() {
+                return Some(token);
+            }
+        }
+    } else if let Some(token) = use_tree.coloncolon_token() {
+        return Some(token);
+    }
+
+    None
 }
 
 /// Merge `rhs` into `lhs` keeping both intact.

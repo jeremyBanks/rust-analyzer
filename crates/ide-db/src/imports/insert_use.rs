@@ -25,6 +25,8 @@ pub use hir::PrefixKind;
 pub enum ImportGranularity {
     /// Do not change the granularity of any imports and preserve the original structure written by the developer.
     Preserve,
+    /// Merge all imports into a single use statement.
+    One,
     /// Merge imports from the same crate into a single use statement.
     Crate,
     /// Merge imports from the same module into a single use statement.
@@ -156,6 +158,7 @@ impl ImportScope {
 pub fn insert_use(scope: &ImportScope, path: ast::Path, cfg: &InsertUseConfig) {
     let _p = profile::span("insert_use");
     let mut mb = match cfg.granularity {
+        ImportGranularity::One => Some(MergeBehavior::One),
         ImportGranularity::Crate => Some(MergeBehavior::Crate),
         ImportGranularity::Module => Some(MergeBehavior::Module),
         ImportGranularity::Item | ImportGranularity::Preserve => None,
@@ -165,6 +168,7 @@ pub fn insert_use(scope: &ImportScope, path: ast::Path, cfg: &InsertUseConfig) {
         mb = match file_granularity {
             ImportGranularityGuess::Unknown => mb,
             ImportGranularityGuess::Item => None,
+            ImportGranularityGuess::One => Some(MergeBehavior::One),
             ImportGranularityGuess::Module => Some(MergeBehavior::Module),
             ImportGranularityGuess::ModuleOrItem => mb.and(Some(MergeBehavior::Module)),
             ImportGranularityGuess::Crate => Some(MergeBehavior::Crate),
@@ -249,6 +253,7 @@ impl ImportGroup {
 enum ImportGranularityGuess {
     Unknown,
     Item,
+    One,
     Module,
     ModuleOrItem,
     Crate,
@@ -278,7 +283,10 @@ fn guess_granularity_from_scope(scope: &ImportScope) -> ImportGranularityGuess {
     };
     loop {
         if let Some(use_tree_list) = prev.use_tree_list() {
-            if use_tree_list.use_trees().any(|tree| tree.use_tree_list().is_some()) {
+            if prev.path().is_none() {
+                // Path-free tree lists can only occur in `one` style.
+                break ImportGranularityGuess::One;
+            } else if use_tree_list.use_trees().any(|tree| tree.use_tree_list().is_some()) {
                 // Nested tree lists can only occur in crate style, or with no proper style being enforced in the file.
                 break ImportGranularityGuess::Crate;
             } else {

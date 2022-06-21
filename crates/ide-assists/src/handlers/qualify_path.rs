@@ -1,21 +1,10 @@
-use std::iter;
-
-use hir::AsAssocItem;
-use ide_db::RootDatabase;
-use ide_db::{
-    helpers::mod_path_to_ast,
-    imports::import_assets::{ImportCandidate, LocatedImport},
-};
-use syntax::{
-    ast,
-    ast::{make, HasArgList},
-    AstNode, NodeOrToken,
-};
-
-use crate::{
-    assist_context::{AssistContext, Assists},
-    handlers::auto_import::find_importable_node,
-    AssistId, AssistKind, GroupLabel,
+use {
+    super::auto_import::find_importable_node, crate::assist_context::AssistContext,
+    crate::assist_context::Assists, hir::AsAssocItem, ide_db::assists::AssistId,
+    ide_db::assists::AssistKind, ide_db::assists::GroupLabel, ide_db::helpers::mod_path_to_ast,
+    ide_db::imports::import_assets::ImportCandidate, ide_db::imports::import_assets::LocatedImport,
+    ide_db::RootDatabase, std::iter, syntax::ast, syntax::ast::make, syntax::ast::HasArgList,
+    syntax::AstNode, syntax::NodeOrToken,
 };
 
 // Assist: qualify_path

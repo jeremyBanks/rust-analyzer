@@ -753,12 +753,14 @@
                     "type": "string",
                     "enum": [
                         "preserve",
+                        "one",
                         "crate",
                         "module",
                         "item"
                     ],
                     "enumDescriptions": [
                         "Do not change the granularity of any imports and preserve the original structure written by the developer.",
+                        "Merge all imports into a single use statement.",
                         "Merge imports from the same crate into a single use statement. Conversely, imports from different crates are split into separate statements.",
                         "Merge imports from the same module into a single use statement. Conversely, imports from different modules are split into separate statements.",
                         "Flatten imports so that each has its own use statement."
@@ -1114,11 +1116,6 @@
                         "Search in current workspace only.",
                         "Search in current workspace and dependencies."
                     ]
-                },
-                "rust-analyzer.restartServerOnConfigChange": {
-                    "markdownDescription": "Whether to restart the server automatically when certain settings that require a restart are changed.",
-                    "default": false,
-                    "type": "boolean"
                 },
                 "$generated-end": {}
             }

@@ -694,6 +694,46 @@ use std::io;
 }
 
 #[test]
+fn merge_one_like_crate() {
+    check_one(
+        "std::foo::bar::Baz",
+        r"use std::{foo::bar::Qux};",
+        r"use std::{foo::bar::{Qux, Baz}};",
+    );
+    check_one(
+        "std::foo::bar::quux::Baz",
+        r"use std::foo::bar::{Qux, quux::{Fez, Fizz}};",
+        r"use std::foo::bar::{Qux, quux::{Fez, Fizz, Baz}};",
+    );
+    check_one(
+        "std::io",
+        r"use std::fmt::{Result, Display};",
+        r"use std::{fmt::{Result, Display}, io};",
+    );
+}
+
+#[test]
+fn merge_one_bare() {
+    check_one("alfa", r"use alfa::bravo;", r"use alfa::{bravo, self};");
+    check_one("alfa", r"use bravo::charlie;", r"use {bravo::charlie, alfa};");
+    check_one("alfa", r"use {bravo, charlie};", r"use {bravo, charlie, alfa};");
+}
+
+#[test]
+fn merge_one_coloncolon() {
+    check_one("::alfa", r"use ::bravo::charlie;", r"use ::{bravo::charlie, alfa};");
+    check_one("::alfa", r"use ::{bravo, charlie};", r"use ::{bravo, charlie, alfa};");
+}
+
+#[test]
+fn merge_one_mixed() {
+    check_one("alfa", r"use ::bravo::charlie;", r"use {::bravo::charlie, alfa};");
+    check_one("::alfa", r"use bravo::charlie;", r"use {bravo::charlie, ::alfa};");
+    check_one("alfa", r"use ::{bravo, charlie};", r"use {::{bravo, charlie}, alfa};");
+    check_one("::alfa", r"use {bravo, charlie};", r"use {bravo, charlie, ::alfa};");
+}
+
+#[test]
 fn split_out_merge() {
     // FIXME: This is suboptimal, we want to get `use std::fmt::{self, Result}`
     // instead.
@@ -851,6 +891,10 @@ fn guess_empty() {
 
 #[test]
 fn guess_single() {
+    check_guess(r"use {baz, bar};", ImportGranularityGuess::One);
+    check_guess(r"use ::{baz, bar};", ImportGranularityGuess::One);
+    check_guess(r"use {baz::{qux, quux}, bar};", ImportGranularityGuess::One);
+    check_guess(r"use ::{baz::{qux, quux}, bar};", ImportGranularityGuess::One);
     check_guess(r"use foo::{baz::{qux, quux}, bar};", ImportGranularityGuess::Crate);
     check_guess(r"use foo::bar;", ImportGranularityGuess::Unknown);
     check_guess(r"use foo::bar::{baz, qux};", ImportGranularityGuess::CrateOrModule);
@@ -946,6 +990,46 @@ use foo::{baz::{qux, quux}, bar};
 }
 
 #[test]
+fn guess_one() {
+    check_guess(r"use {alfa, bravo};", ImportGranularityGuess::One);
+    check_guess(r"use {alfa, bravo, crate::charlie};", ImportGranularityGuess::One);
+    check_guess(r"use {::alfa::bravo::charlie, self::delta};", ImportGranularityGuess::One);
+
+    // This case doesn't conform to any style, but includes multiple crates in a single use statement,
+    // which can only occur under the `One` style.
+    check_guess(
+        r"
+use alfa;
+use {bravo, charlie};
+use delta;
+use echo::foxtrot;
+",
+        ImportGranularityGuess::One,
+    );
+
+    // This case doesn't conform to any style.
+    // It is decided by whether a use statement that's characteristic of `One` or `Crate` style occurs first.
+    check_guess(
+        r"
+use alfa;
+use {bravo, charlie};
+use delta;
+use echo::{foxtrot::{golf, hotel}, india};
+",
+        ImportGranularityGuess::One,
+    );
+    check_guess(
+        r"
+use alfa;
+use bravo::{charlie::{delta, echo}, foxtrot};
+use golf;
+use {hotel, india};
+",
+        ImportGranularityGuess::Crate,
+    );
+}
+
+#[test]
 fn guess_skips_differing_vis() {
     check_guess(
         r"
@@ -1031,6 +1115,10 @@ fn check(
             skip_glob_imports: true,
         },
     )
+}
+
+fn check_one(path: &str, ra_fixture_before: &str, ra_fixture_after: &str) {
+    check(path, ra_fixture_before, ra_fixture_after, ImportGranularity::One)
 }
 
 fn check_crate(path: &str, ra_fixture_before: &str, ra_fixture_after: &str) {

@@ -1052,6 +1052,7 @@ impl Config {
         InsertUseConfig {
             granularity: match self.data.imports_granularity_group {
                 ImportGranularityDef::Preserve => ImportGranularity::Preserve,
+                ImportGranularityDef::One => ImportGranularity::One,
                 ImportGranularityDef::Item => ImportGranularity::Item,
                 ImportGranularityDef::Crate => ImportGranularity::Crate,
                 ImportGranularityDef::Module => ImportGranularity::Module,
@@ -1429,6 +1430,7 @@ pub enum ExprFillDefaultDef {
 #[serde(rename_all = "snake_case")]
 enum ImportGranularityDef {
     Preserve,
+    One,
     Item,
     Crate,
     Module,
@@ -1682,9 +1684,10 @@ fn field_props(field: &str, ty: &str, doc: &[&str], default: &str) -> serde_json
         },
         "MergeBehaviorDef" => set! {
             "type": "string",
-            "enum": ["none", "crate", "module"],
+            "enum": ["none", "one", "crate", "module"],
             "enumDescriptions": [
                 "Do not merge imports at all.",
+                "Merge all imports into a single `use` statement.",
                 "Merge imports from the same crate into a single `use` statement.",
                 "Merge imports from the same module into a single `use` statement."
             ],
@@ -1699,9 +1702,10 @@ fn field_props(field: &str, ty: &str, doc: &[&str], default: &str) -> serde_json
         },
         "ImportGranularityDef" => set! {
             "type": "string",
-            "enum": ["preserve", "crate", "module", "item"],
+            "enum": ["preserve", "one", "crate", "module", "item"],
             "enumDescriptions": [
                 "Do not change the granularity of any imports and preserve the original structure written by the developer.",
+                "Merge all imports into a single use statement.",
                 "Merge imports from the same crate into a single use statement. Conversely, imports from different crates are split into separate statements.",
                 "Merge imports from the same module into a single use statement. Conversely, imports from different modules are split into separate statements.",
                 "Flatten imports so that each has its own use statement."
