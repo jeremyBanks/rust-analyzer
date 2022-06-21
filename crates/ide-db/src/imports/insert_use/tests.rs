@@ -694,6 +694,25 @@ use std::io;
 }
 
 #[test]
+fn merge_one_like_crate() {
+    check_one(
+        "std::foo::bar::Baz",
+        r"use std::{foo::bar::Qux};",
+        r"use std::{foo::bar::{Qux, Baz}};",
+    );
+    check_one(
+        "std::foo::bar::quux::Baz",
+        r"use std::foo::bar::{Qux, quux::{Fez, Fizz}};",
+        r"use std::foo::bar::{Qux, quux::{Fez, Fizz, Baz}};",
+    );
+    check_one(
+        "std::io",
+        r"use std::fmt::{Result, Display};",
+        r"use std::{fmt::{Result, Display}, io};",
+    );
+}
+
+#[test]
 fn merge_one_bare() {
     check_one("alfa", r"use alfa::bravo;", r"use alfa::{bravo, self};");
     check_one("alfa", r"use bravo::charlie;", r"use {bravo::charlie, alfa};");
