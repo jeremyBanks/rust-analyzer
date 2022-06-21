@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use itertools::{EitherOrBoth, Itertools};
 use parser::T;
 use syntax::{
-    ast::{self, AstNode, HasAttrs, HasVisibility, PathSegmentKind},
+    ast::{self, AstNode, HasAttrs, HasVisibility, PathSegmentKind, UseTree},
     ted,
 };
 
@@ -49,6 +49,7 @@ pub fn try_merge_imports(lhs: &ast::Use, rhs: &ast::Use, merge: MergeBehavior) -
     let rhs = rhs.clone_subtree().clone_for_update();
     let lhs_tree = lhs.use_tree()?;
     let rhs_tree = rhs.use_tree()?;
+    // FIXME: both functions may modify the tree they're passed; they should have independent copies
     try_merge_trees_mut(&lhs_tree, &rhs_tree, merge)
         .or_else(|| merge_trees_into_one(&lhs_tree, &rhs_tree, merge))?;
     Some(lhs)
@@ -63,6 +64,7 @@ pub fn try_merge_trees(
 ) -> Option<ast::UseTree> {
     let lhs = lhs.clone_subtree().clone_for_update();
     let rhs = rhs.clone_subtree().clone_for_update();
+    // FIXME: both functions may modify the tree they're passed; they should have independent copies
     try_merge_trees_mut(&lhs, &rhs, merge).or_else(|| merge_trees_into_one(&lhs, &rhs, merge))?;
     Some(lhs)
 }
@@ -92,41 +94,87 @@ fn merge_trees_into_one(
         return None;
     }
 
-    let cc = lhs.coloncolon_token().zip(rhs.coloncolon_token()).is_some();
+    let mut use_trees: Vec<UseTree> = vec![];
 
-    let use_trees = Vec::new();
+    let lhs_cc = leading_coloncolon(lhs);
+    dbg!(lhs, &lhs_cc);
+    let rhs_cc = leading_coloncolon(rhs);
+    dbg!(rhs, &rhs_cc);
 
-    // lhs.split_prefix(&lhs.path()?);
-    // rhs.split_prefix(&rhs.path()?);
+    let lhs_has_cc = lhs_cc.is_some();
+    let lhs_has_path = lhs.path().is_some();
+    let lhs_has_tree = lhs.use_tree_list().is_some();
 
-    let lhs_cc = lhs.coloncolon_token().is_some();
-    let rhs_cc = rhs.coloncolon_token().is_some();
+    let rhs_has_cc = rhs_cc.is_some();
+    let rhs_has_path = rhs.path().is_some();
+    let rhs_has_tree = rhs.use_tree_list().is_some();
 
-    let lhs_list = lhs.get_or_create_use_tree_list();
-    for rhs_tree in rhs.get_or_create_use_tree_list().use_trees() {
-        lhs_list.add_use_tree(rhs_tree);
+    let both_have_cc = lhs_has_cc && rhs_has_cc;
+
+    if both_have_cc {
+        ted::remove(lhs_cc?);
+        ted::remove(rhs_cc?);
     }
 
-    // let subtree = self.clone_subtree().clone_for_update();
-    // ted::remove_all_iter(self.syntax().children_with_tokens());
-    // ted::insert(Position::first_child_of(self.syntax()), prefix.syntax());
-    // self.get_or_create_use_tree_list().add_use_tree(subtree);
+    if lhs_has_path {
+        use_trees.push(UseTree::cast(lhs.syntax().clone_subtree())?);
+    } else if lhs_has_tree {
+        for tree in lhs.use_tree_list()?.use_trees() {
+            use_trees.push(UseTree::cast(tree.syntax().clone_subtree())?);
+        }
+    } else {
+        return None;
+    }
 
-    // match (lhs.coloncolon_token().is_some(), rhs.coloncolon_token().is_some()) {
-    //     _ => {}
-    // }
+    if rhs_has_path {
+        use_trees.push(UseTree::cast(rhs.syntax().clone_subtree())?);
+    } else if rhs_has_tree {
+        for tree in rhs.use_tree_list()?.use_trees() {
+            use_trees.push(UseTree::cast(tree.syntax().clone_subtree())?);
+        }
+    } else {
+        return None;
+    }
 
-    // let before_lhs = ted::Position::before(lhs_path.syntax().first_child()?);
-    // let before_rhs = ted::Position::before(rhs_path.syntax().first_child()?);
-    // ted::insert_all(before_lhs, vec![ast::make::token(T![::]).into()]);
-    // ted::insert_all(before_rhs, vec![ast::make::token(T![::]).into()]);
+    let mut replacement = Vec::with_capacity(2);
 
-    let merged = ast::make::use_tree_list(use_trees);
+    if both_have_cc {
+        replacement.push(ast::make::token(T![::]).into());
+    }
+    replacement.push(
+        ast::make::use_tree_list(use_trees)
+            .clone_subtree()
+            .clone_for_update()
+            .syntax()
+            .clone()
+            .into(),
+    );
+    ted::replace_with_many(lhs.syntax(), replacement);
 
-    lhs.coloncolon_token().map(|cc| ted::remove(cc.syntax()));
-    lhs.path().map(|path| ted::remove(path.syntax()));
+    fn leading_coloncolon(use_tree: &ast::UseTree) -> Option<syntax::SyntaxToken> {
+        if let Some(mut path) = use_tree.path() {
+            loop {
+                match path.qualifier() {
+                    Some(qualifier) => {
+                        path = qualifier;
+                    }
+                    None => break,
+                }
+            }
+            if let Some(token) = path.coloncolon_token() {
+                return Some(token);
+            } else if let Some(segment) = path.segment() {
+                if let Some(token) = segment.coloncolon_token() {
+                    return Some(token);
+                }
+            }
+        } else if let Some(token) = use_tree.coloncolon_token() {
+            return Some(token);
+        }
 
-    ted::replace(lhs.get_or_create_use_tree_list().syntax(), merged.syntax());
+        None
+    }
+
     Some(())
 }
 
