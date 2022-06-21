@@ -1,8 +1,8 @@
 //! Handle syntactic aspects of merging UseTrees.
-use {std::cmp::Ordering, syntax::ast::make, syntax::ast::NameRef};
+use {std::cmp::Ordering, syntax::ast::make};
 
 use itertools::{EitherOrBoth, Itertools};
-use parser::T;
+
 use syntax::{
     ast::{self, AstNode, HasAttrs, HasVisibility, PathSegmentKind, UseTree},
     ted,
@@ -47,58 +47,56 @@ pub fn try_merge_imports(lhs: &ast::Use, rhs: &ast::Use, merge: MergeBehavior) -
 
     let lhs = lhs.clone_subtree().clone_for_update();
     let rhs = rhs.clone_subtree().clone_for_update();
-    let lhs_tree = lhs.use_tree()?;
-    let rhs_tree = rhs.use_tree()?;
-    let lhs_cc = leading_coloncolon(&lhs_tree).is_some();
-    let rhs_cc = leading_coloncolon(&rhs_tree).is_some();
+    let mut lhs_tree = lhs.use_tree()?;
+    let mut rhs_tree = rhs.use_tree()?;
+    let lhs_cc = leading_coloncolon(&lhs_tree);
+    let rhs_cc = leading_coloncolon(&rhs_tree);
 
     if merge == MergeBehavior::One {
+        if let (Some(lhs_cc), Some(rhs_cc)) = (&lhs_cc, &rhs_cc) {
+            ted::remove(lhs_cc);
+            ted::remove(rhs_cc);
+        }
+
+        // This should never be visible to users, but in case it does show up, give it a unique (searchable) value.
+        let ident = "RA_ONE_IMPORT_GROUP";
         let qualifier =
-            make::path_from_segments([make::path_segment(make::name_ref("ONE"))], false);
+            make::path_from_segments([make::path_segment(make::name_ref(ident))], false);
 
-        ted::replace(
-            lhs_tree.syntax(),
-            make::use_tree(
-                qualifier.clone_for_update(),
-                Some(make::use_tree_list([lhs_tree.clone_subtree()])),
-                None,
-                false,
-            )
-            .clone_for_update()
-            .syntax(),
-        );
+        lhs_tree = make::use_tree(
+            qualifier.clone_subtree().clone_for_update(),
+            Some(make::use_tree_list([lhs_tree.clone_subtree()])),
+            None,
+            false,
+        )
+        .clone_for_update();
 
-        ted::replace(
-            rhs_tree.syntax(),
-            make::use_tree(
-                qualifier.clone_for_update(),
-                Some(make::use_tree_list([rhs_tree.clone_subtree()])),
-                None,
-                false,
-            )
-            .clone_for_update()
-            .syntax(),
-        );
+        rhs_tree = make::use_tree(
+            qualifier.clone_subtree().clone_for_update(),
+            Some(make::use_tree_list([rhs_tree.clone_subtree()])),
+            None,
+            false,
+        )
+        .clone_for_update();
     }
 
-    try_merge_trees_mut(&lhs_tree, &rhs_tree, merge)?;
+    dbg!(&lhs_tree, &rhs_tree);
+
+    let result = try_merge_trees_mut(&lhs_tree, &rhs_tree, merge);
+
+    result?;
 
     if merge == MergeBehavior::One {
-        let qualifier =
-            make::path_from_segments([make::path_segment(make::name_ref("ONE"))], false);
+        let lhs_qualifier = &lhs_tree.path()?.first_qualifier_or_self();
 
-        lhs_tree.split_prefix(&qualifier);
-        rhs_tree.split_prefix(&qualifier);
+        ted::remove(lhs_qualifier.syntax());
 
-        ted::remove(lhs_tree.syntax().first_child_or_token().unwrap());
-        ted::remove(rhs_tree.syntax().first_child_or_token().unwrap());
-        if !lhs_cc {
-            ted::remove(lhs_tree.syntax().first_child_or_token().unwrap());
-        }
-        if !rhs_cc {
-            ted::remove(rhs_tree.syntax().first_child_or_token().unwrap());
+        if !(lhs_cc.is_some() && rhs_cc.is_some()) {
+            ted::remove(leading_coloncolon(&lhs_tree)?);
         }
     }
+
+    ted::replace(lhs.use_tree()?.syntax(), lhs_tree.syntax());
 
     Some(lhs)
 }
@@ -134,17 +132,10 @@ pub fn try_merge_trees(
     rhs: &ast::UseTree,
     merge: MergeBehavior,
 ) -> Option<ast::UseTree> {
-    {
-        let lhs_tree = lhs.clone_subtree().clone_for_update();
-        let rhs_tree = rhs.clone_subtree().clone_for_update();
-        // FIXME: both functions may modify the tree they're passed; they should have independent copies
-        try_merge_trees_mut(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs_tree))
-    }
-    .or_else(|| {
-        let lhs_tree = lhs.clone_subtree().clone_for_update();
-        let rhs_tree = rhs.clone_subtree().clone_for_update();
-        merge_trees_into_one(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs_tree))
-    })
+    let lhs = lhs.clone_subtree().clone_for_update();
+    let rhs = rhs.clone_subtree().clone_for_update();
+    try_merge_trees_mut(&lhs, &rhs, merge)?;
+    Some(lhs)
 }
 
 fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior) -> Option<()> {
@@ -161,75 +152,6 @@ fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehav
         rhs.split_prefix(&rhs_prefix);
     }
     recursive_merge(lhs, rhs, merge)
-}
-
-fn merge_trees_into_one(
-    lhs: &ast::UseTree,
-    rhs: &ast::UseTree,
-    merge: MergeBehavior,
-) -> Option<()> {
-    if merge != MergeBehavior::One {
-        return None;
-    }
-
-    let mut use_trees: Vec<UseTree> = vec![];
-
-    let lhs_cc = leading_coloncolon(lhs);
-    dbg!(lhs, &lhs_cc);
-    let rhs_cc = leading_coloncolon(rhs);
-    dbg!(rhs, &rhs_cc);
-
-    let lhs_has_cc = lhs_cc.is_some();
-    let lhs_has_path = lhs.path().is_some();
-    let lhs_has_tree = lhs.use_tree_list().is_some();
-
-    let rhs_has_cc = rhs_cc.is_some();
-    let rhs_has_path = rhs.path().is_some();
-    let rhs_has_tree = rhs.use_tree_list().is_some();
-
-    let both_have_cc = lhs_has_cc && rhs_has_cc;
-
-    if both_have_cc {
-        ted::remove(lhs_cc?);
-        ted::remove(rhs_cc?);
-    }
-
-    if lhs_has_path || (lhs_has_cc && !rhs_has_cc) {
-        use_trees.push(UseTree::cast(lhs.syntax().clone_subtree())?);
-    } else if lhs_has_tree {
-        for tree in lhs.use_tree_list()?.use_trees() {
-            use_trees.push(tree.clone_subtree());
-        }
-    } else {
-        return None;
-    }
-
-    if rhs_has_path || (rhs_has_cc && !lhs_has_cc) {
-        use_trees.push(UseTree::cast(rhs.syntax().clone_subtree())?);
-    } else if rhs_has_tree {
-        for tree in rhs.use_tree_list()?.use_trees() {
-            use_trees.push(tree.clone_subtree());
-        }
-    } else {
-        return None;
-    }
-
-    let mut replacement = Vec::with_capacity(2);
-
-    if both_have_cc {
-        replacement.push(ast::make::token(T![::]).into());
-    }
-    replacement.push(
-        ast::make::use_tree_list(use_trees)
-            .clone_subtree()
-            .clone_for_update()
-            .syntax()
-            .clone()
-            .into(),
-    );
-    ted::replace_with_many(lhs.syntax(), replacement);
-
-    Some(())
 }
 
 /// Recursively merges rhs to lhs
