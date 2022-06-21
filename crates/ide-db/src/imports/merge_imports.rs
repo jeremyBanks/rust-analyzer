@@ -45,14 +45,20 @@ pub fn try_merge_imports(lhs: &ast::Use, rhs: &ast::Use, merge: MergeBehavior) -
         return None;
     }
 
-    let lhs = lhs.clone_subtree().clone_for_update();
-    let rhs = rhs.clone_subtree().clone_for_update();
-    let lhs_tree = lhs.use_tree()?;
-    let rhs_tree = rhs.use_tree()?;
-    // FIXME: both functions may modify the tree they're passed; they should have independent copies
-    try_merge_trees_mut(&lhs_tree, &rhs_tree, merge)
-        .or_else(|| merge_trees_into_one(&lhs_tree, &rhs_tree, merge))?;
-    Some(lhs)
+    {
+        let lhs = lhs.clone_subtree().clone_for_update();
+        let rhs = rhs.clone_subtree().clone_for_update();
+        let lhs_tree = lhs.use_tree()?;
+        let rhs_tree = rhs.use_tree()?;
+        try_merge_trees_mut(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs))
+    }
+        .or_else(|| {
+            let lhs = lhs.clone_subtree().clone_for_update();
+            let rhs = rhs.clone_subtree().clone_for_update();
+            let lhs_tree = lhs.use_tree()?;
+            let rhs_tree = rhs.use_tree()?;
+            merge_trees_into_one(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs))
+    })
 }
 
 /// Merge `rhs` into `lhs` keeping both intact.
@@ -62,11 +68,17 @@ pub fn try_merge_trees(
     rhs: &ast::UseTree,
     merge: MergeBehavior,
 ) -> Option<ast::UseTree> {
-    let lhs = lhs.clone_subtree().clone_for_update();
-    let rhs = rhs.clone_subtree().clone_for_update();
-    // FIXME: both functions may modify the tree they're passed; they should have independent copies
-    try_merge_trees_mut(&lhs, &rhs, merge).or_else(|| merge_trees_into_one(&lhs, &rhs, merge))?;
-    Some(lhs)
+    {
+        let lhs_tree = lhs.clone_subtree().clone_for_update();
+        let rhs_tree = rhs.clone_subtree().clone_for_update();
+        // FIXME: both functions may modify the tree they're passed; they should have independent copies
+        try_merge_trees_mut(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs_tree))
+    }
+        .or_else(|| {
+            let lhs_tree = lhs.clone_subtree().clone_for_update();
+            let rhs_tree = rhs.clone_subtree().clone_for_update();
+            merge_trees_into_one(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs_tree))
+    })
 }
 
 fn try_merge_trees_mut(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior) -> Option<()> {
