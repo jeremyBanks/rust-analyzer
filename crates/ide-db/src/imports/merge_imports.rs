@@ -97,18 +97,10 @@ fn merge_trees_into_one(
     let mut use_trees: Vec<UseTree> = vec![];
 
     let lhs_cc = leading_coloncolon(lhs);
-    dbg!(lhs, &lhs_cc);
     let rhs_cc = leading_coloncolon(rhs);
-    dbg!(rhs, &rhs_cc);
 
     let lhs_has_cc = lhs_cc.is_some();
-    let lhs_has_path = lhs.path().is_some();
-    let lhs_has_tree = lhs.use_tree_list().is_some();
-
     let rhs_has_cc = rhs_cc.is_some();
-    let rhs_has_path = rhs.path().is_some();
-    let rhs_has_tree = rhs.use_tree_list().is_some();
-
     let both_have_cc = lhs_has_cc && rhs_has_cc;
 
     if both_have_cc {
@@ -116,21 +108,29 @@ fn merge_trees_into_one(
         ted::remove(rhs_cc?);
     }
 
-    if lhs_has_path {
+    let lhs_has_path = lhs.path().and_then(|p| p.syntax().first_child_or_token()).is_some();
+    dbg!(&lhs, &lhs_has_path);
+    let lhs_has_tree =
+        lhs.use_tree_list().and_then(|p| p.syntax().first_child_or_token()).is_some();
+    let rhs_has_path = rhs.path().and_then(|p| p.syntax().first_child_or_token()).is_some();
+    let rhs_has_tree =
+        rhs.use_tree_list().and_then(|p| p.syntax().first_child_or_token()).is_some();
+
+    if lhs_has_path || (lhs_has_cc && !rhs_has_cc) {
         use_trees.push(UseTree::cast(lhs.syntax().clone_subtree())?);
     } else if lhs_has_tree {
         for tree in lhs.use_tree_list()?.use_trees() {
-            use_trees.push(UseTree::cast(tree.syntax().clone_subtree())?);
+            use_trees.push(tree.clone_subtree());
         }
     } else {
         return None;
     }
 
-    if rhs_has_path {
+    if rhs_has_path || (rhs_has_cc && !lhs_has_cc) {
         use_trees.push(UseTree::cast(rhs.syntax().clone_subtree())?);
     } else if rhs_has_tree {
         for tree in rhs.use_tree_list()?.use_trees() {
-            use_trees.push(UseTree::cast(tree.syntax().clone_subtree())?);
+            use_trees.push(tree.clone_subtree());
         }
     } else {
         return None;

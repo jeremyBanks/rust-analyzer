@@ -709,10 +709,9 @@ fn merge_one_coloncolon() {
 #[test]
 fn merge_one_mixed() {
     check_one("alfa", r"use ::bravo::charlie;", r"use {::bravo::charlie, alfa};");
-    // FIXME
-    // check_one("::alfa", r"use bravo::charlie;", r"use {bravo::charlie, ::alfa};");
-    // check_one("alfa", r"use ::{bravo, charlie};", r"use {::{bravo, charlie}, alfa};");
-    // check_one("::alfa", r"use {bravo, charlie};", r"use {{bravo, charlie}, ::alfa};");
+    check_one("::alfa", r"use bravo::charlie;", r"use {bravo::charlie, ::alfa};");
+    check_one("alfa", r"use ::{bravo, charlie};", r"use {::{bravo, charlie}, alfa};");
+    check_one("::alfa", r"use {bravo, charlie};", r"use {bravo, charlie, ::alfa};");
 }
 
 #[test]
