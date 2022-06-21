@@ -1,5 +1,5 @@
 //! Handle syntactic aspects of merging UseTrees.
-use std::cmp::Ordering;
+use {std::cmp::Ordering, syntax::ast::make, syntax::ast::NameRef};
 
 use itertools::{EitherOrBoth, Itertools};
 use parser::T;
@@ -45,20 +45,86 @@ pub fn try_merge_imports(lhs: &ast::Use, rhs: &ast::Use, merge: MergeBehavior) -
         return None;
     }
 
-    {
-        let lhs = lhs.clone_subtree().clone_for_update();
-        let rhs = rhs.clone_subtree().clone_for_update();
-        let lhs_tree = lhs.use_tree()?;
-        let rhs_tree = rhs.use_tree()?;
-        try_merge_trees_mut(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs))
+    let lhs = lhs.clone_subtree().clone_for_update();
+    let rhs = rhs.clone_subtree().clone_for_update();
+    let lhs_tree = lhs.use_tree()?;
+    let rhs_tree = rhs.use_tree()?;
+    let lhs_cc = leading_coloncolon(&lhs_tree).is_some();
+    let rhs_cc = leading_coloncolon(&rhs_tree).is_some();
+
+    if merge == MergeBehavior::One {
+        let qualifier =
+            make::path_from_segments([make::path_segment(make::name_ref("ONE"))], false);
+
+        ted::replace(
+            lhs_tree.syntax(),
+            make::use_tree(
+                qualifier.clone_for_update(),
+                Some(make::use_tree_list([lhs_tree.clone_subtree()])),
+                None,
+                false,
+            )
+            .clone_for_update()
+            .syntax(),
+        );
+
+        ted::replace(
+            rhs_tree.syntax(),
+            make::use_tree(
+                qualifier.clone_for_update(),
+                Some(make::use_tree_list([rhs_tree.clone_subtree()])),
+                None,
+                false,
+            )
+            .clone_for_update()
+            .syntax(),
+        );
     }
-        .or_else(|| {
-            let lhs = lhs.clone_subtree().clone_for_update();
-            let rhs = rhs.clone_subtree().clone_for_update();
-            let lhs_tree = lhs.use_tree()?;
-            let rhs_tree = rhs.use_tree()?;
-            merge_trees_into_one(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs))
-    })
+
+    try_merge_trees_mut(&lhs_tree, &rhs_tree, merge)?;
+
+    if merge == MergeBehavior::One {
+        let qualifier =
+            make::path_from_segments([make::path_segment(make::name_ref("ONE"))], false);
+
+        lhs_tree.split_prefix(&qualifier);
+        rhs_tree.split_prefix(&qualifier);
+
+        ted::remove(lhs_tree.syntax().first_child_or_token().unwrap());
+        ted::remove(rhs_tree.syntax().first_child_or_token().unwrap());
+        if !lhs_cc {
+            ted::remove(lhs_tree.syntax().first_child_or_token().unwrap());
+        }
+        if !rhs_cc {
+            ted::remove(rhs_tree.syntax().first_child_or_token().unwrap());
+        }
+    }
+
+    Some(lhs)
+}
+
+fn leading_coloncolon(use_tree: &ast::UseTree) -> Option<syntax::SyntaxToken> {
+    if let Some(mut path) = use_tree.path() {
+        loop {
+            match path.qualifier() {
+                Some(qualifier) => {
+                    path = qualifier;
+                }
+                None => break,
+            }
+        }
+        if let Some(token) = path.coloncolon_token() {
+            return Some(token);
+        } else if let Some(segment) = path.segment() {
+            if let Some(token) = segment.coloncolon_token() {
+                return Some(token);
+            }
+        }
+    } else if let Some(token) = use_tree.coloncolon_token() {
+        return Some(token);
+    }
+
+    None
 }
 
 /// Merge `rhs` into `lhs` keeping both intact.
@@ -74,10 +140,10 @@ pub fn try_merge_trees(
         // FIXME: both functions may modify the tree they're passed; they should have independent copies
         try_merge_trees_mut(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs_tree))
     }
-        .or_else(|| {
-            let lhs_tree = lhs.clone_subtree().clone_for_update();
-            let rhs_tree = rhs.clone_subtree().clone_for_update();
-            merge_trees_into_one(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs_tree))
+    .or_else(|| {
+        let lhs_tree = lhs.clone_subtree().clone_for_update();
+        let rhs_tree = rhs.clone_subtree().clone_for_update();
+        merge_trees_into_one(&lhs_tree, &rhs_tree, merge).and_then(|_| Some(lhs_tree))
     })
 }
 
@@ -162,30 +228,6 @@ fn merge_trees_into_one(
             .into(),
     );
     ted::replace_with_many(lhs.syntax(), replacement);
-
-    fn leading_coloncolon(use_tree: &ast::UseTree) -> Option<syntax::SyntaxToken> {
-        if let Some(mut path) = use_tree.path() {
-            loop {
-                match path.qualifier() {
-                    Some(qualifier) => {
-                        path = qualifier;
-                    }
-                    None => break,
-                }
-            }
-            if let Some(token) = path.coloncolon_token() {
-                return Some(token);
-            } else if let Some(segment) = path.segment() {
-                if let Some(token) = segment.coloncolon_token() {
-                    return Some(token);
-                }
-            }
-        } else if let Some(token) = use_tree.coloncolon_token() {
-            return Some(token);
-        }
-
-        None
-    }
 
     Some(())
 }
