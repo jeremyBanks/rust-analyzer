@@ -63,6 +63,8 @@ pub fn try_merge_imports(lhs: &ast::Use, rhs: &ast::Use, merge: MergeBehavior) -
         let qualifier =
             make::path_from_segments([make::path_segment(make::name_ref(ident))], false);
 
+        // TODO: this is the wrong conmstructor because it requires a tree list, but I may not?
+        lhs_tree = make::use_tree_qualified;
         lhs_tree = make::use_tree(
             qualifier.clone_subtree().clone_for_update(),
             Some(make::use_tree_list([lhs_tree.clone_subtree()])),
