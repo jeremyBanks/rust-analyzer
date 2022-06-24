@@ -132,6 +132,7 @@ mod handlers {
     mod flip_binexpr;
     mod flip_comma;
     mod flip_trait_bound;
+    mod fmt_imports;
     mod generate_constant;
     mod generate_default_from_enum_variant;
     mod generate_default_from_new;
@@ -221,6 +222,7 @@ mod handlers {
             flip_binexpr::flip_binexpr,
             flip_comma::flip_comma,
             flip_trait_bound::flip_trait_bound,
+            fmt_imports::fmt_imports,
             generate_constant::generate_constant,
             generate_default_from_enum_variant::generate_default_from_enum_variant,
             generate_default_from_new::generate_default_from_new,
